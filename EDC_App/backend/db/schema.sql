@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS utilisateurs (
   email VARCHAR(255) UNIQUE NOT NULL,
   mot_de_passe TEXT NOT NULL,
   role VARCHAR(30) NOT NULL CHECK (role IN ('admin','comptable','client')),
+  gym_branch_id BIGINT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS documents (
@@ -87,3 +88,17 @@ CREATE TABLE IF NOT EXISTS chatbot_documents (
 
 CREATE INDEX IF NOT EXISTS idx_chatbot_documents_tenant ON chatbot_documents(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_chatbot_documents_conversation ON chatbot_documents(conversation_id);
+
+-- Module Registry (tenant -> enabled modules)
+CREATE TABLE IF NOT EXISTS tenant_modules (
+  id BIGSERIAL PRIMARY KEY,
+  code_entreprise VARCHAR(80) NOT NULL,
+  module_key VARCHAR(80) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE (code_entreprise, module_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_modules_code ON tenant_modules(code_entreprise);
+CREATE INDEX IF NOT EXISTS idx_tenant_modules_key ON tenant_modules(module_key);

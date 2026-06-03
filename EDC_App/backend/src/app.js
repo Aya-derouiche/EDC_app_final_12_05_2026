@@ -5,6 +5,7 @@ const documentRoutes = require("./routes/documentRoutes");
 const accountingRoutes = require("./routes/accountingRoutes");
 const legacyRoutes = require("./routes/legacyRoutes");
 const chatbotRoutes = require("./routes/chatbotRoutes");
+const moduleRegistryRoutes = require("./routes/moduleRegistryRoutes");
 const errorHandler = require("./middleware/errorHandler");
 
 const app = express();
@@ -16,11 +17,14 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/documents", documentRoutes);
 app.use("/api/v1/accounting", accountingRoutes);
 app.use("/api/v1/chatbot", chatbotRoutes);
+app.use("/api/v1/modules", moduleRegistryRoutes);
 app.use("/api", legacyRoutes);
 app.use("/api/v1", legacyRoutes);
 
 app.use(errorHandler);
 module.exports = app;
+
+
 
 
 
