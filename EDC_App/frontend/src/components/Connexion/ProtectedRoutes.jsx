@@ -1,5 +1,5 @@
 ﻿import React, { useContext, useState } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { UserContext } from './UserProvider.jsx'
 import Sidebar from '../Dashboard/Sidebar.jsx'
 import Navbar from '../Dashboard/Navbar.jsx'
@@ -61,10 +61,9 @@ import LivraisonsPrevues from '../Requetes/LivraisonsPrevues.jsx'
 import CommandeDetailleesParPeriode from '../Requetes/CommandeDetailleesParPeriode.jsx'
 import CommandesParCodeClient from '../Requetes/CommandesParCodeClient.jsx'
 import FacturesNonPayee from '../Requetes/FacturesNonPayee.jsx'
-import DocumentUploader from "../Documents/DocumentUploader.jsx";
-import Chatbot from "../Chatbot/Chatbot.jsx";
-
-
+import DocumentUploader from '../Documents/DocumentUploader.jsx'
+import Chatbot from '../Chatbot/Chatbot.jsx'
+import GymManagement from '../GymManagement/GymManagement.jsx'
 
 const SIDEBAR_W = 255
 const NAVBAR_H = 62
@@ -72,23 +71,25 @@ const NAVBAR_H = 62
 const ProtectedRoutes = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const { user } = useContext(UserContext)
+  const location = useLocation()
+  const isGymSpace = location.pathname.startsWith('/gym')
 
   if (!localStorage.getItem('token')) {
-    return <Navigate to="/" replace />
+    return <Navigate to="/modules" replace />
   }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f4f6f9' }}>
-      <Sidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
+      {!isGymSpace && <Sidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />}
       <div
         style={{
           flex: 1,
-          marginLeft: SIDEBAR_W,
-          paddingTop: NAVBAR_H,
+          marginLeft: isGymSpace ? 0 : SIDEBAR_W,
+          paddingTop: isGymSpace ? 0 : NAVBAR_H,
           minHeight: '100vh',
         }}
       >
-        <Navbar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
+        {!isGymSpace && <Navbar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />}
         <Routes>
           <Route path="/home" element={<Home isSidebarOpen={isSidebarOpen} />} />
           <Route path="/entreprises" element={<Entreprises isSidebarOpen={isSidebarOpen} />} />
@@ -148,16 +149,13 @@ const ProtectedRoutes = () => {
           <Route path="/CommandesParCodeClient" element={<CommandesParCodeClient isSidebarOpen={isSidebarOpen} />} />
           <Route path="/FacturesNonPayee" element={<FacturesNonPayee isSidebarOpen={isSidebarOpen} />} />
           <Route path="/requetes" element={<Requetes isSidebarOpen={isSidebarOpen} />} />
-          <Route path="/uploadFile" element={<DocumentUploader isSidebarOpen={isSidebarOpen} />} />
           <Route path="/documents/upload" element={<DocumentUploader isSidebarOpen={isSidebarOpen} />} />
-
-</Routes>
-        <Chatbot />
+          <Route path="/gym" element={<GymManagement isSidebarOpen={isSidebarOpen} />} />
+        </Routes>
+        {!isGymSpace && <Chatbot />}
       </div>
     </div>
   )
 }
 
 export default ProtectedRoutes
-
-

@@ -2,6 +2,8 @@
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom'
 import { UserProvider } from './components/Connexion/UserProvider.jsx'
 import Login from './components/Connexion/Login.jsx'
+import ModuleLogin from './components/Connexion/ModuleLogin.jsx'
+import ModuleSelector from './components/Connexion/ModuleSelector.jsx'
 import Register from './components/Connexion/Register.jsx'
 import ForgotPassword from './components/Connexion/ForgotPassword.jsx'
 import ResetPassword from './components/Connexion/ResetPassword.jsx'
@@ -14,7 +16,10 @@ const App = () => (
   <UserProvider>
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
-        <Route path="/" element={<Login />} />
+        <Route path="/" element={<Navigate to="/modules" replace />} />
+        <Route path="/modules" element={<ModuleSelector />} />
+        <Route path="/login/:module" element={<ModuleLogin />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/selection-client" element={<SelectionClient />} />
         <Route path="/forget_pass" element={<ForgotPassword />} />

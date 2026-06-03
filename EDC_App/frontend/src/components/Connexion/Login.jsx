@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+﻿import React, { useContext, useState } from "react";
 import axios from "axios";
 import { UserContext } from "./UserProvider.jsx";
 import { useNavigate, Link } from "react-router-dom";
@@ -18,13 +18,26 @@ const Login = () => {
     setLoading(true);
     try {
       const res = await axios.post("/api/login", { identite, mot_de_passe });
-      const { token, user } = res.data;
-      if (!token || !user) throw new Error("Réponse invalide");
+      const { token, refreshToken, user } = res.data;
+      if (!token || !user) throw new Error("RÃ©ponse invalide");
       localStorage.setItem("token", token);
+      if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
+      localStorage.setItem("user", JSON.stringify(user));
+      if (user?.code_entreprise || user?.codeEntreprise) {
+        localStorage.setItem("tenant_code", user?.code_entreprise || user?.codeEntreprise);
+      }
+      const branchId = user?.gym_branch_id || user?.branch_id || user?.branchId || user?.gymBranchId;
+      if (branchId) {
+        localStorage.setItem("gym_branch_id", branchId);
+        localStorage.setItem("branch_id", branchId);
+      } else {
+        localStorage.removeItem("gym_branch_id");
+        localStorage.removeItem("branch_id");
+      }
       setUser(user);
       navigate("/home");
     } catch (err) {
-      setError("Identifiants invalides. Veuillez réessayer.");
+      setError("Identifiants invalides. Veuillez rÃ©essayer.");
     } finally {
       setLoading(false);
     }
@@ -61,13 +74,13 @@ const Login = () => {
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             fontSize: 28, marginBottom: 14,
           }}>
-            📊
+            ðŸ“Š
           </div>
           <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: 0 }}>
             EDC Gestion
           </h1>
           <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, marginTop: 4 }}>
-            Connectez-vous à votre espace comptable
+            Connectez-vous Ã  votre espace comptable
           </p>
         </div>
 
@@ -87,7 +100,7 @@ const Login = () => {
               color: "#c0392b", fontSize: 13, marginBottom: 18,
               display: "flex", alignItems: "center", gap: 8,
             }}>
-              <span>⚠</span> {error}
+              <span>âš </span> {error}
             </div>
           )}
 
@@ -101,7 +114,7 @@ const Login = () => {
                 <span style={{
                   position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)",
                   fontSize: 15, color: "#a0aec0",
-                }}>👤</span>
+                }}>ðŸ‘¤</span>
                 <input
                   type="text"
                   value={identite}
@@ -130,7 +143,7 @@ const Login = () => {
                 <span style={{
                   position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)",
                   fontSize: 15, color: "#a0aec0",
-                }}>🔒</span>
+                }}>ðŸ”’</span>
                 <input
                   type={showPwd ? "text" : "password"}
                   value={mot_de_passe}
@@ -156,14 +169,14 @@ const Login = () => {
                     fontSize: 16, color: "#a0aec0", padding: 2,
                   }}
                 >
-                  {showPwd ? "🙈" : "👁"}
+                  {showPwd ? "ðŸ™ˆ" : "ðŸ‘"}
                 </button>
               </div>
             </div>
 
             {/* Helper text */}
             <p style={{ fontSize: 12, color: "#a0aec0", marginBottom: 18 }}>
-              Si vous rencontrez un problème, contactez votre administration
+              Si vous rencontrez un problÃ¨me, contactez votre administration
             </p>
 
             {/* Submit */}
@@ -206,10 +219,10 @@ const Login = () => {
               marginTop: 18, fontSize: 13,
             }}>
               <Link to="/forget_pass" style={{ color: "#27ae60", textDecoration: "none", fontWeight: 500 }}>
-                Mot de passe oublié ?
+                Mot de passe oubliÃ© ?
               </Link>
               <Link to="/register" style={{ color: "#718096", textDecoration: "none" }}>
-                Créer un compte
+                CrÃ©er un compte
               </Link>
             </div>
           </form>
@@ -220,3 +233,5 @@ const Login = () => {
 };
 
 export default Login;
+
+
