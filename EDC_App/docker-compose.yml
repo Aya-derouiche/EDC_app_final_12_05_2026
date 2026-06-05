@@ -28,8 +28,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9002:9000"
+      - "9003:9001"
     volumes:
       - minio_data:/data
 
@@ -60,7 +60,7 @@ services:
       MINIO_BUCKET: edc-documents
       CORS_ORIGIN: http://localhost
     ports:
-      - "5000:5000"
+      - "5004:5000"
 
   gym-management:
     build:
@@ -89,7 +89,7 @@ services:
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: edc-documents
     ports:
-      - "5002:5002"
+      - "5003:5002"
 
   frontend:
     build:
