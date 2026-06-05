@@ -33,10 +33,10 @@ docker compose logs -f frontend
 URLs locales :
 
 - Frontend : http://localhost
-- Backend principal : http://localhost:5000/api/health
-- Gym Management : http://localhost:5002/health
-- MinIO API : http://localhost:9000
-- MinIO Console : http://localhost:9001
+- Backend principal : http://localhost:5004/api/health
+- Gym Management : http://localhost:5003/health
+- MinIO API : http://localhost:9002
+- MinIO Console : http://localhost:9003
 
 Identifiants MinIO locaux :
 

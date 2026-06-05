@@ -46,8 +46,9 @@ npm run dev
 ```bash
 docker-compose up --build
 # Frontend  → http://localhost:80
-# Backend   → http://localhost:5000
-# MinIO UI  → http://localhost:9001 (minioadmin/minioadmin)
+# Backend   → http://localhost:5004
+# Gym       → http://localhost:5003
+# MinIO UI  → http://localhost:9003 (minioadmin/minioadmin)
 ```
 
 ## Variables d'environnement (backend/.env)
