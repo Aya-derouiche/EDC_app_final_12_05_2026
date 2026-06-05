@@ -1074,7 +1074,7 @@ router.use(requireAuth);
 
 router.get("/health", (_req, res) => res.json({ ok: true, module: "gym-management" }));
 
-router.get("/files", async (req, res, next) => {
+async function listGymFiles(req, res, next) {
   try {
     await ensureSchema();
     const scope = requireBranchScope(req, res);
@@ -1109,7 +1109,9 @@ router.get("/files", async (req, res, next) => {
     );
     res.json(out.rows);
   } catch (e) { next(e); }
-});
+}
+
+router.get(["/files", "/files/"], listGymFiles);
 
 router.post(
   "/files/upload",
@@ -1699,7 +1701,7 @@ router.get("/contract-ai/contracts/:id/pdf", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post("/branches", requireRole("admin", "super_admin", "hq_admin"), async (req, res, next) => {
+router.post("/branches", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
   try {
     await ensureSchema();
     const scope = requireBranchScope(req, res);
