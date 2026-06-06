@@ -4,7 +4,20 @@ const config = require("./config");
 const gymRoutes = require("./routes/gymRoutes");
 
 const app = express();
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
+
+function corsOrigin(origin, callback) {
+  if (config.corsOrigin === "*") return callback(null, true);
+  if (!origin) return callback(null, true);
+
+  const allowedOrigins = String(config.corsOrigin)
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return callback(null, allowedOrigins.includes(origin));
+}
+
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'gym-management' }));

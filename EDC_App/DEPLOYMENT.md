@@ -79,7 +79,6 @@ Variables d'environnement :
 
 ```text
 NODE_ENV=production
-PORT=10000
 DATABASE_URL=<NEON_DATABASE_URL>
 DATABASE_SSL=true
 DATABASE_SCHEMA=cloud
@@ -110,8 +109,6 @@ Variables d'environnement :
 
 ```text
 NODE_ENV=production
-PORT=10000
-GYM_PORT=10000
 DATABASE_URL=<NEON_DATABASE_URL>
 DATABASE_SSL=true
 GYM_DB_SCHEMA=gym
@@ -126,6 +123,8 @@ MINIO_BUCKET=edc-documents
 GYM_DEFAULT_TENANT_CODE=ENT001
 GROQ_API_KEY=<optional-groq-key>
 ```
+
+Render fournit automatiquement la variable `PORT`. Ne la fixe pas manuellement sauf si Render te le demande.
 
 ## 4. Vercel Frontend
 

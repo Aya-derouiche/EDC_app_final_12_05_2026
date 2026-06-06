@@ -4,10 +4,33 @@ const Minio = require("minio");
 
 const bucket = process.env.MINIO_BUCKET || "edc-documents";
 
+function readMinioEndpoint() {
+  const rawEndpoint = String(process.env.MINIO_ENDPOINT || "localhost").trim();
+  let parsedUrl = null;
+
+  try {
+    parsedUrl = rawEndpoint.includes("://") ? new URL(rawEndpoint) : null;
+  } catch (_err) {
+    parsedUrl = null;
+  }
+
+  const useSSL = process.env.MINIO_USE_SSL
+    ? process.env.MINIO_USE_SSL === "true"
+    : parsedUrl?.protocol === "https:";
+
+  return {
+    endPoint: parsedUrl?.hostname || rawEndpoint.replace(/^https?:\/\//, "").replace(/\/.*$/, ""),
+    port: Number(process.env.MINIO_PORT || parsedUrl?.port || (useSSL ? 443 : 9000)),
+    useSSL,
+  };
+}
+
+const endpoint = readMinioEndpoint();
+
 const minioClient = new Minio.Client({
-  endPoint: process.env.MINIO_ENDPOINT || "localhost",
-  port: Number(process.env.MINIO_PORT || 9000),
-  useSSL: process.env.MINIO_USE_SSL === "true",
+  endPoint: endpoint.endPoint,
+  port: endpoint.port,
+  useSSL: endpoint.useSSL,
   accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
   secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
 });
