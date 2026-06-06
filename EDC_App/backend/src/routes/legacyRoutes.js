@@ -15,49 +15,57 @@ async function tableExists(name) {
 
 async function verifyPassword(plain, stored) {
   if (!stored) return false;
-  if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
-    return bcrypt.compare(plain, stored);
+  const password = String(stored);
+  if (password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$")) {
+    try {
+      return await bcrypt.compare(plain, password.replace(/^\$2y\$/, "$2b$"));
+    } catch (_err) {
+      return false;
+    }
   }
-  return plain === stored;
+  return plain === password;
+}
+
+async function getTableColumns(tableName) {
+  const r = await query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = ANY (current_schemas(false))
+       AND table_name = $1`,
+    [tableName]
+  );
+  return new Set(r.rows.map((row) => row.column_name));
 }
 
 async function findLoginUser(identite) {
-  const candidates = [
-    {
-      source: "utilisateurs",
-      sql: `SELECT *, identite AS login_identite, code_entreprise AS login_code_entreprise
-            FROM utilisateurs
-            WHERE identite = $1 OR email = $1
-            LIMIT 1`,
-    },
-    {
-      source: "utilisateurs",
-      sql: `SELECT *, nom AS login_identite, entreprise_id::text AS login_code_entreprise
-            FROM utilisateurs
-            WHERE nom = $1 OR email = $1
-            LIMIT 1`,
-    },
-    {
-      source: "users",
-      sql: `SELECT *, identite AS login_identite, code_entreprise AS login_code_entreprise
-            FROM users
-            WHERE identite = $1 OR email = $1
-            LIMIT 1`,
-    },
-    {
-      source: "users",
-      sql: `SELECT *, nom AS login_identite, entreprise_id::text AS login_code_entreprise
-            FROM users
-            WHERE nom = $1 OR email = $1
-            LIMIT 1`,
-    },
-  ];
-
-  for (const candidate of candidates) {
+  for (const tableName of ["utilisateurs", "users"]) {
     try {
-      const r = await query(candidate.sql, [identite]);
+      const columns = await getTableColumns(tableName);
+      if (!columns.size || !columns.has("mot_de_passe")) continue;
+
+      const identityColumn = columns.has("identite") ? "identite" : columns.has("nom") ? "nom" : null;
+      const loginConditions = [];
+      if (identityColumn) loginConditions.push(`${identityColumn} = $1`);
+      if (columns.has("email")) loginConditions.push("email = $1");
+      if (columns.has("code_user")) loginConditions.push("code_user = $1");
+      if (!loginConditions.length) continue;
+
+      const loginIdentiteSelect = identityColumn ? `${identityColumn} AS login_identite` : "NULL AS login_identite";
+      const codeEntrepriseSelect = columns.has("code_entreprise")
+        ? "code_entreprise AS login_code_entreprise"
+        : columns.has("entreprise_id")
+          ? "entreprise_id::text AS login_code_entreprise"
+          : "NULL AS login_code_entreprise";
+
+      const r = await query(
+        `SELECT *, ${loginIdentiteSelect}, ${codeEntrepriseSelect}
+         FROM ${tableName}
+         WHERE ${loginConditions.join(" OR ")}
+         LIMIT 1`,
+        [identite]
+      );
       if (r.rows[0]) {
-        return { user: r.rows[0], source: candidate.source };
+        return { user: r.rows[0], source: tableName };
       }
     } catch (err) {
       if (!["42P01", "42703"].includes(err.code)) throw err;
