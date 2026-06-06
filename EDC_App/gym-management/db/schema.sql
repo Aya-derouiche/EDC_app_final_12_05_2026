@@ -3,6 +3,9 @@
 -- salary-deduction mandates, payments, bank returns, classes, coaches,
 -- attendance, cash desk, access events, notifications and settings.
 
+CREATE SCHEMA IF NOT EXISTS gym;
+SET search_path TO gym, public;
+
 CREATE TABLE IF NOT EXISTS gym_branches (
   id BIGSERIAL PRIMARY KEY,
   code_entreprise VARCHAR(80) NOT NULL,
