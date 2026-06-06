@@ -13,8 +13,22 @@ services:
         value: "true"
       - key: DATABASE_SCHEMA
         value: cloud
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
       - key: JWT_EXPIRES_IN
         value: 12h
+      - key: CORS_ORIGIN
+        sync: false
+      - key: MINIO_ENDPOINT
+        sync: false
+      - key: MINIO_USE_SSL
+        value: "true"
+      - key: MINIO_ACCESS_KEY
+        sync: false
+      - key: MINIO_SECRET_KEY
+        sync: false
       - key: MINIO_BUCKET
         value: edc-documents
 
@@ -32,6 +46,20 @@ services:
         value: "true"
       - key: GYM_DB_SCHEMA
         value: gym
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: MINIO_ENDPOINT
+        sync: false
+      - key: MINIO_USE_SSL
+        value: "true"
+      - key: MINIO_ACCESS_KEY
+        sync: false
+      - key: MINIO_SECRET_KEY
+        sync: false
       - key: MINIO_BUCKET
         value: edc-documents
       - key: GYM_DEFAULT_TENANT_CODE

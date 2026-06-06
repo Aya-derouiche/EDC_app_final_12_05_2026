@@ -9,6 +9,30 @@ function readSchema(value, fallback) {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema) ? schema : fallback;
 }
 
+function minioConfig() {
+  const rawEndpoint = String(process.env.MINIO_ENDPOINT || "localhost").trim();
+  let parsedUrl = null;
+
+  try {
+    parsedUrl = rawEndpoint.includes("://") ? new URL(rawEndpoint) : null;
+  } catch (_err) {
+    parsedUrl = null;
+  }
+
+  const useSSL = process.env.MINIO_USE_SSL
+    ? process.env.MINIO_USE_SSL === "true"
+    : parsedUrl?.protocol === "https:";
+
+  return {
+    endPoint: parsedUrl?.hostname || rawEndpoint.replace(/^https?:\/\//, "").replace(/\/.*$/, ""),
+    port: Number(process.env.MINIO_PORT || parsedUrl?.port || (useSSL ? 443 : 9000)),
+    useSSL,
+    accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
+    secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
+    bucket: process.env.MINIO_BUCKET || "edc-documents",
+  };
+}
+
 function databaseConfig() {
   const schema = readSchema(process.env.DATABASE_SCHEMA, "cloud");
   const ssl = readBool(process.env.DATABASE_SSL || process.env.PGSSLMODE)
@@ -41,14 +65,7 @@ module.exports = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
   corsOrigin: process.env.CORS_ORIGIN || "*",
   db: databaseConfig(),
-  minio: {
-    endPoint: process.env.MINIO_ENDPOINT || "localhost",
-    port: Number(process.env.MINIO_PORT || (process.env.MINIO_USE_SSL === "true" ? 443 : 9000)),
-    useSSL: process.env.MINIO_USE_SSL === "true",
-    accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
-    secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
-    bucket: process.env.MINIO_BUCKET || "edc-documents",
-  },
+  minio: minioConfig(),
   extraction: {
     apiUrl: process.env.EXTRACTION_API_URL || "",
     apiKey: process.env.EXTRACTION_API_KEY || "",
