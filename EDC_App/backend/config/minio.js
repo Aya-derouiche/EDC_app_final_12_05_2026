@@ -30,6 +30,7 @@ const minioClient = new Minio.Client({
   useSSL: endpoint.useSSL,
   accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
   secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
+  region: process.env.MINIO_REGION || undefined,
 });
 
 const MINIO_BUCKET = process.env.MINIO_BUCKET || 'edc-documents';

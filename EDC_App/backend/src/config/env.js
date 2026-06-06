@@ -30,6 +30,7 @@ function minioConfig() {
     accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
     secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
     bucket: process.env.MINIO_BUCKET || "edc-documents",
+    region: process.env.MINIO_REGION || undefined,
   };
 }
 
