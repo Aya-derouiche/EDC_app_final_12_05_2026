@@ -7,9 +7,10 @@ const legacyRoutes = require("./routes/legacyRoutes");
 const chatbotRoutes = require("./routes/chatbotRoutes");
 const moduleRegistryRoutes = require("./routes/moduleRegistryRoutes");
 const errorHandler = require("./middleware/errorHandler");
+const env = require("./config/env");
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: env.corsOrigin === "*" ? true : env.corsOrigin, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));

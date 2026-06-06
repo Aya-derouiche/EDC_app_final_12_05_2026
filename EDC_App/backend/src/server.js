@@ -11,6 +11,11 @@ async function startServer(port) {
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {
+      if (process.env.NODE_ENV === "production") {
+        console.error(`Port ${port} already in use.`);
+        process.exit(1);
+      }
+
       const nextPort = Number(port) + 1;
       console.warn(`Port ${port} already in use, retrying on ${nextPort}`);
       setTimeout(() => startServer(nextPort), 200);
