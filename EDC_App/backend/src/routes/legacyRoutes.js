@@ -21,30 +21,59 @@ async function verifyPassword(plain, stored) {
   return plain === stored;
 }
 
+async function findLoginUser(identite) {
+  const candidates = [
+    {
+      source: "utilisateurs",
+      sql: `SELECT *, identite AS login_identite, code_entreprise AS login_code_entreprise
+            FROM utilisateurs
+            WHERE identite = $1 OR email = $1
+            LIMIT 1`,
+    },
+    {
+      source: "utilisateurs",
+      sql: `SELECT *, nom AS login_identite, entreprise_id::text AS login_code_entreprise
+            FROM utilisateurs
+            WHERE nom = $1 OR email = $1
+            LIMIT 1`,
+    },
+    {
+      source: "users",
+      sql: `SELECT *, identite AS login_identite, code_entreprise AS login_code_entreprise
+            FROM users
+            WHERE identite = $1 OR email = $1
+            LIMIT 1`,
+    },
+    {
+      source: "users",
+      sql: `SELECT *, nom AS login_identite, entreprise_id::text AS login_code_entreprise
+            FROM users
+            WHERE nom = $1 OR email = $1
+            LIMIT 1`,
+    },
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const r = await query(candidate.sql, [identite]);
+      if (r.rows[0]) {
+        return { user: r.rows[0], source: candidate.source };
+      }
+    } catch (err) {
+      if (!["42P01", "42703"].includes(err.code)) throw err;
+    }
+  }
+
+  return { user: null, source: null };
+}
+
 router.post("/login", async (req, res, next) => {
   try {
     const identite = req.body.identite || req.body.email;
     const mot_de_passe = req.body.mot_de_passe || req.body.password;
     if (!identite || !mot_de_passe) return res.status(400).json({ message: "Identifiants manquants" });
 
-    let user = null;
-    let source = null;
-
-    if (await tableExists("public.utilisateurs")) {
-      const r = await query("SELECT * FROM utilisateurs WHERE identite = $1 OR email = $1 LIMIT 1", [identite]);
-      if (r.rows[0]) {
-        user = r.rows[0];
-        source = "utilisateurs";
-      }
-    }
-
-    if (!user && await tableExists("public.users")) {
-      const r2 = await query("SELECT * FROM users WHERE identite = $1 OR email = $1 LIMIT 1", [identite]);
-      if (r2.rows[0]) {
-        user = r2.rows[0];
-        source = "users";
-      }
-    }
+    const { user, source } = await findLoginUser(identite);
 
     if (!user) return res.status(401).json({ message: "Identifiants invalides" });
 
@@ -52,8 +81,8 @@ router.post("/login", async (req, res, next) => {
     if (!ok) return res.status(401).json({ message: "Identifiants invalides" });
 
     const role = user.role || "client";
-    const codeEntreprise = user.code_entreprise || user.entreprise_id || null;
-    const identiteUser = user.identite || user.nom || null;
+    const codeEntreprise = user.login_code_entreprise || user.code_entreprise || user.entreprise_id || null;
+    const identiteUser = user.login_identite || user.identite || user.nom || null;
 
     const token = jwt.sign({
       id: user.id,
