@@ -6,7 +6,7 @@ import { UserContext } from "../Connexion/UserProvider";
 import Swal from "sweetalert2";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000";
+  import.meta.env.VITE_API_BASE_URL || "";
 
 const DOC_TYPES = [
   { value: "facture", label: "Facture" },

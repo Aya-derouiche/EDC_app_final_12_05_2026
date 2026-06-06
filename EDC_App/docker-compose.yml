@@ -51,6 +51,7 @@ services:
       DATABASE_PASSWORD: postgres
       DATABASE_NAME: cloud
       DATABASE_PORT: 5432
+      DATABASE_SCHEMA: cloud
       JWT_SECRET: dev-secret-change-me
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -80,6 +81,7 @@ services:
       GYM_DB_PASSWORD: postgres
       GYM_DB_NAME: cloud
       GYM_DB_PORT: 5432
+      GYM_DB_SCHEMA: gym
       JWT_SECRET: dev-secret-change-me
       CORS_ORIGIN: http://localhost
       MINIO_ENDPOINT: minio

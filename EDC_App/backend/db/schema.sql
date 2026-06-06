@@ -1,4 +1,7 @@
-﻿CREATE TABLE IF NOT EXISTS entreprises (
+﻿CREATE SCHEMA IF NOT EXISTS cloud;
+SET search_path TO cloud, public;
+
+CREATE TABLE IF NOT EXISTS entreprises (
   id BIGSERIAL PRIMARY KEY,
   code VARCHAR(50) UNIQUE NOT NULL,
   nom VARCHAR(255) NOT NULL,
