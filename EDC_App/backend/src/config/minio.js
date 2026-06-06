@@ -21,6 +21,7 @@ const minioClient = new Minio.Client({
   useSSL: env.minio.useSSL,
   accessKey: env.minio.accessKey,
   secretKey: env.minio.secretKey,
+  region: env.minio.region,
 });
 
 async function ensureBucket() {
