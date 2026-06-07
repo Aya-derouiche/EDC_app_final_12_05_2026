@@ -5,16 +5,22 @@ const gymRoutes = require("./routes/gymRoutes");
 
 const app = express();
 
+function normalizeOrigin(value) {
+  const trimmed = String(value || "").trim().replace(/\/$/, "");
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 function corsOrigin(origin, callback) {
   if (config.corsOrigin === "*") return callback(null, true);
   if (!origin) return callback(null, true);
 
   const allowedOrigins = String(config.corsOrigin)
     .split(",")
-    .map((value) => value.trim())
+    .map(normalizeOrigin)
     .filter(Boolean);
 
-  return callback(null, allowedOrigins.includes(origin));
+  return callback(null, allowedOrigins.includes(normalizeOrigin(origin)));
 }
 
 app.use(cors({ origin: corsOrigin, credentials: true }));

@@ -8,7 +8,7 @@ const { requireGatewayAuth } = require("./middleware/auth");
 const app = express();
 
 const port = Number(process.env.GATEWAY_PORT || 8080);
-const jwtSecret = process.env.JWT_SECRET || "change-this-in-production";
+const jwtSecret = process.env.JWT_SECRET || "Q9xV7mK2#Lr8Pz4@Nc5Tj1Ws6Yh3Fd!Ua0Bg7Ee9Xi2Rp8Mv";
 const jwtSecrets = process.env.JWT_SECRETS || jwtSecret;
 const coreServiceUrl = process.env.CORE_SERVICE_URL || "http://localhost:5000";
 const gymServiceUrl = process.env.GYM_SERVICE_URL || "http://localhost:5002";

@@ -59,7 +59,7 @@ function databaseConfig() {
 
 module.exports = {
   port: Number(process.env.PORT || 5000),
-  jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
+  jwtSecret: process.env.JWT_SECRET || "Q9xV7mK2#Lr8Pz4@Nc5Tj1Ws6Yh3Fd!Ua0Bg7Ee9Xi2Rp8Mv",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
   corsOrigin: process.env.CORS_ORIGIN || "*",
   dbSchema: readSchema(process.env.DATABASE_SCHEMA, "cloud"),

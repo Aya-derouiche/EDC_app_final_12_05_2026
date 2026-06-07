@@ -52,7 +52,7 @@ services:
       DATABASE_NAME: cloud
       DATABASE_PORT: 5432
       DATABASE_SCHEMA: cloud
-      JWT_SECRET: dev-secret-change-me
+      JWT_SECRET: "Q9xV7mK2#Lr8Pz4@Nc5Tj1Ws6Yh3Fd!Ua0Bg7Ee9Xi2Rp8Mv"
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
@@ -82,7 +82,7 @@ services:
       GYM_DB_NAME: cloud
       GYM_DB_PORT: 5432
       GYM_DB_SCHEMA: gym
-      JWT_SECRET: dev-secret-change-me
+      JWT_SECRET: "Q9xV7mK2#Lr8Pz4@Nc5Tj1Ws6Yh3Fd!Ua0Bg7Ee9Xi2Rp8Mv"
       CORS_ORIGIN: http://localhost
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000

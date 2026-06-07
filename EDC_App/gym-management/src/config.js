@@ -24,14 +24,12 @@ function databaseConfig() {
   const ssl = readBool(readEnv("GYM_DB_SSL", "DATABASE_SSL", "PGSSLMODE"))
     ? { rejectUnauthorized: false }
     : undefined;
-  const options = `-c search_path=${schema},public`;
   const connectionString = readEnv("GYM_DATABASE_URL", "DATABASE_URL");
 
   if (connectionString) {
     return {
       connectionString,
       ssl,
-      options,
     };
   }
 
@@ -42,14 +40,14 @@ function databaseConfig() {
     password: readEnv("GYM_DB_PASSWORD", "DB_PASSWORD") || "postgres",
     database: readEnv("GYM_DB_NAME", "DB_NAME") || "cloud",
     ssl,
-    options,
   };
 }
 
 module.exports = {
   port: Number(readEnv("GYM_PORT", "PORT") || 5002),
-  jwtSecret: readEnv("JWT_SECRET") || "change-this-in-production",
+  jwtSecret: readEnv("JWT_SECRET") || "Q9xV7mK2#Lr8Pz4@Nc5Tj1Ws6Yh3Fd!Ua0Bg7Ee9Xi2Rp8Mv",
   corsOrigin: readEnv("CORS_ORIGIN") || "http://localhost:5173",
+  dbSchema: readSchema(readEnv("GYM_DB_SCHEMA", "DATABASE_SCHEMA"), "gym"),
   defaultTenantCode: readEnv("GYM_DEFAULT_TENANT_CODE", "DEFAULT_TENANT_CODE") || "ENT001",
   ai: {
     provider: readEnv("GYM_AI_PROVIDER") || "groq",
