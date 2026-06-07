@@ -1,7 +1,14 @@
 import axios from "axios";
 
+function gymBaseUrl() {
+  const rawBaseUrl = (import.meta.env.VITE_GYM_API_BASE_URL || "/api/v1/gym").replace(/\/$/, "");
+  if (rawBaseUrl.endsWith("/api/v1/gym")) return rawBaseUrl;
+  if (/^https?:\/\//i.test(rawBaseUrl)) return `${rawBaseUrl}/api/v1/gym`;
+  return rawBaseUrl || "/api/v1/gym";
+}
+
 const gymApi = axios.create({
-  baseURL: import.meta.env.VITE_GYM_API_BASE_URL || "/api/v1/gym",
+  baseURL: gymBaseUrl(),
   withCredentials: true,
 });
 
