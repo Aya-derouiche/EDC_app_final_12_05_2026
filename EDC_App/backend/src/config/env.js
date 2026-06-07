@@ -39,13 +39,11 @@ function databaseConfig() {
   const ssl = readBool(process.env.DATABASE_SSL || process.env.PGSSLMODE)
     ? { rejectUnauthorized: false }
     : undefined;
-  const options = `-c search_path=${schema},public`;
 
   if (process.env.DATABASE_URL) {
     return {
       connectionString: process.env.DATABASE_URL,
       ssl,
-      options,
     };
   }
 
@@ -56,7 +54,6 @@ function databaseConfig() {
     database: process.env.DATABASE_NAME || "cloud",
     port: Number(process.env.DATABASE_PORT || 5432),
     ssl,
-    options,
   };
 }
 
@@ -65,6 +62,7 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
   corsOrigin: process.env.CORS_ORIGIN || "*",
+  dbSchema: readSchema(process.env.DATABASE_SCHEMA, "cloud"),
   db: databaseConfig(),
   minio: minioConfig(),
   extraction: {
