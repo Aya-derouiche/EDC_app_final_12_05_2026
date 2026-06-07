@@ -15,10 +15,64 @@ async function tableExists(name) {
 
 async function verifyPassword(plain, stored) {
   if (!stored) return false;
-  if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
-    return bcrypt.compare(plain, stored);
+  const password = String(stored);
+  if (password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$")) {
+    try {
+      return await bcrypt.compare(plain, password.replace(/^\$2y\$/, "$2b$"));
+    } catch (_err) {
+      return false;
+    }
   }
-  return plain === stored;
+  return plain === password;
+}
+
+async function getTableColumns(tableName) {
+  const r = await query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = ANY (current_schemas(false))
+       AND table_name = $1`,
+    [tableName]
+  );
+  return new Set(r.rows.map((row) => row.column_name));
+}
+
+async function findLoginUser(identite) {
+  for (const tableName of ["utilisateurs", "users"]) {
+    try {
+      const columns = await getTableColumns(tableName);
+      if (!columns.size || !columns.has("mot_de_passe")) continue;
+
+      const identityColumn = columns.has("identite") ? "identite" : columns.has("nom") ? "nom" : null;
+      const loginConditions = [];
+      if (identityColumn) loginConditions.push(`${identityColumn} = $1`);
+      if (columns.has("email")) loginConditions.push("email = $1");
+      if (columns.has("code_user")) loginConditions.push("code_user = $1");
+      if (!loginConditions.length) continue;
+
+      const loginIdentiteSelect = identityColumn ? `${identityColumn} AS login_identite` : "NULL AS login_identite";
+      const codeEntrepriseSelect = columns.has("code_entreprise")
+        ? "code_entreprise AS login_code_entreprise"
+        : columns.has("entreprise_id")
+          ? "entreprise_id::text AS login_code_entreprise"
+          : "NULL AS login_code_entreprise";
+
+      const r = await query(
+        `SELECT *, ${loginIdentiteSelect}, ${codeEntrepriseSelect}
+         FROM ${tableName}
+         WHERE ${loginConditions.join(" OR ")}
+         LIMIT 1`,
+        [identite]
+      );
+      if (r.rows[0]) {
+        return { user: r.rows[0], source: tableName };
+      }
+    } catch (err) {
+      if (!["42P01", "42703"].includes(err.code)) throw err;
+    }
+  }
+
+  return { user: null, source: null };
 }
 
 router.post("/login", async (req, res, next) => {
@@ -27,24 +81,7 @@ router.post("/login", async (req, res, next) => {
     const mot_de_passe = req.body.mot_de_passe || req.body.password;
     if (!identite || !mot_de_passe) return res.status(400).json({ message: "Identifiants manquants" });
 
-    let user = null;
-    let source = null;
-
-    if (await tableExists("public.utilisateurs")) {
-      const r = await query("SELECT * FROM utilisateurs WHERE identite = $1 OR email = $1 LIMIT 1", [identite]);
-      if (r.rows[0]) {
-        user = r.rows[0];
-        source = "utilisateurs";
-      }
-    }
-
-    if (!user && await tableExists("public.users")) {
-      const r2 = await query("SELECT * FROM users WHERE identite = $1 OR email = $1 LIMIT 1", [identite]);
-      if (r2.rows[0]) {
-        user = r2.rows[0];
-        source = "users";
-      }
-    }
+    const { user, source } = await findLoginUser(identite);
 
     if (!user) return res.status(401).json({ message: "Identifiants invalides" });
 
@@ -52,8 +89,8 @@ router.post("/login", async (req, res, next) => {
     if (!ok) return res.status(401).json({ message: "Identifiants invalides" });
 
     const role = user.role || "client";
-    const codeEntreprise = user.code_entreprise || user.entreprise_id || null;
-    const identiteUser = user.identite || user.nom || null;
+    const codeEntreprise = user.login_code_entreprise || user.code_entreprise || user.entreprise_id || null;
+    const identiteUser = user.login_identite || user.identite || user.nom || null;
 
     const token = jwt.sign({
       id: user.id,
