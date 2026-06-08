@@ -2,6 +2,14 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/api/v1/gym/:path*",
+      "destination": "https://edc-gym-management.onrender.com/api/v1/gym/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://edc-backend2.onrender.com/api/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

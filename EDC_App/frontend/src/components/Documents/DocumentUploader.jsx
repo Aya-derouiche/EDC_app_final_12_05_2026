@@ -391,6 +391,57 @@ const DocumentUploader = ({
     }
   };
 
+  const endpointByDocType = {
+    facture: "/api/facture",
+    achat: "/api/achats",
+    livraison: "/api/livraison",
+    commande: "/api/commande",
+  };
+
+  const handleValidateAndCreate = async () => {
+    const token = localStorage.getItem("token");
+    const endpoint = endpointByDocType[docType];
+
+    if (!endpoint) {
+      setError("Ce type de document ne peut pas encore être créé automatiquement.");
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+
+    try {
+      const payload = {
+        ...formData,
+        code_tiers: selectedTiers || formData.code_tiers || null,
+        document_fichier: formData.document_url || null,
+        ajoute_par: user?.id || null,
+      };
+
+      await axios.post(`${API_BASE_URL}${endpoint}`, payload, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      setStep("done");
+      onUploadSuccess?.(scanData);
+    } catch (err) {
+      const message =
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        "Erreur lors de la création du document comptable.";
+
+      setError(message);
+      Swal.fire({
+        icon: "error",
+        title: "Erreur",
+        text: message,
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const reset = () => {
     setSelectedFile(null);
     setStep("upload");
@@ -543,6 +594,7 @@ const DocumentUploader = ({
         <div className="d-flex gap-2 mt-3">
           <button
             className="btn btn-success"
+            onClick={handleValidateAndCreate}
             disabled={uploading}
           >
             {uploading

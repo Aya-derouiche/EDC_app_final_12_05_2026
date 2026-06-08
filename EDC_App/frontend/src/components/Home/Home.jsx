@@ -201,8 +201,6 @@ export default function Home({ isSidebarOpen }) {
       background: "#f3f4f8",
       padding: "28px 32px",
       fontFamily: "'Inter', 'Segoe UI', sans-serif",
-      marginLeft: isSidebarOpen ? 240 : 0,
-      transition: "margin-left .25s",
     }}>
 
       {/* ── Header ── */}

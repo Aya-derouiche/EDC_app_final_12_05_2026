@@ -3,7 +3,7 @@
 require("dotenv").config();
 const axios = require("axios");
 
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_API_URL = process.env.GROQ_API_URL || process.env.GYM_GROQ_API_URL || "https://api.groq.com/openai/v1/chat/completions";
 
 const GROQ_VISION_MODELS = [
   "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -254,9 +254,81 @@ function parseAIResponse(rawText) {
 
 // ── Main scan function ────────────────────────────────────────────────────────
 // Can accept either a URL (string) or a Buffer directly
+function emptyExtraction(docType) {
+  const type = String(docType || "facture").toLowerCase();
+  const common = { confidence_score: 0 };
+
+  if (type === "achat") {
+    return {
+      ...common,
+      type_document: "achat",
+      type_piece: "",
+      num_piece: "",
+      date_piece: "",
+      fournisseur: { nom: null, mf_cin: null, adresse: null },
+      montant_ht: 0,
+      fodec: 0,
+      tva: 0,
+      timbre: 0,
+      autre_montant: 0,
+      montant_total: 0,
+      observations: null,
+    };
+  }
+
+  if (type === "livraison") {
+    return {
+      ...common,
+      type_document: "livraison",
+      num_bl: "",
+      date_bl: "",
+      fournisseur: { nom: null, mf_cin: null },
+      reference_commande: null,
+      lignes: [],
+      montant_ht: 0,
+      tva: 0,
+      montant_total: 0,
+      observations: null,
+    };
+  }
+
+  if (type === "commande") {
+    return {
+      ...common,
+      type_document: "commande",
+      num_commande: "",
+      date_commande: "",
+      fournisseur: { nom: null },
+      lignes: [],
+      montant_total: 0,
+      date_livraison_prevue: null,
+      observations: null,
+    };
+  }
+
+  return {
+    ...common,
+    type_document: "facture",
+    num_facture: "",
+    date_facture: "",
+    fournisseur: { nom: null, mf_cin: null, adresse: null, tel: null },
+    client: { nom: null, mf_cin: null },
+    lignes: [],
+    montant_ht: 0,
+    fodec: 0,
+    tva: 0,
+    timbre: 0,
+    remise: 0,
+    montant_total: 0,
+    mode_paiement: null,
+    echeance: null,
+    observations: null,
+  };
+}
+
 async function scanDocument(fileUrlOrBuffer, mimeType, docType = "facture") {
   try {
-    const apiKey = process.env.GROQ_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY || process.env.GYM_GROQ_API_KEY;
     if (!apiKey) {
       throw new Error(
         "GROQ_API_KEY manquante dans .env ! Obtenez votre clé gratuite sur https://console.groq.com"
@@ -272,7 +344,7 @@ async function scanDocument(fileUrlOrBuffer, mimeType, docType = "facture") {
       return {
         success: false,
         error:   "Excel/CSV: remplissage manuel requis — l'IA ne peut pas lire les feuilles de calcul binaires.",
-        extractedData: null,
+        extractedData: emptyExtraction(docType),
         confidence_score: 0,
       };
     }
@@ -296,10 +368,23 @@ async function scanDocument(fileUrlOrBuffer, mimeType, docType = "facture") {
       fileMime = "image/jpeg"; // fallback
     }
 
+    if (!fileMime.startsWith("image/")) {
+      return {
+        success: false,
+        error: "OCR IA disponible pour les images JPG/PNG/WebP/GIF. Pour PDF/Excel/CSV, le fichier est importe et la saisie reste manuelle.",
+        extractedData: emptyExtraction(docType),
+        confidence_score: 0,
+      };
+    }
+
     let lastError = "";
+    const configuredModel = process.env.GROQ_MODEL || process.env.GYM_GROQ_MODEL;
+    const models = configuredModel
+      ? [configuredModel, ...GROQ_VISION_MODELS.filter((m) => m !== configuredModel)]
+      : GROQ_VISION_MODELS;
 
     // Try each model in order (fallback on quota/rate limit)
-    for (const model of GROQ_VISION_MODELS) {
+    for (const model of models) {
       try {
         console.log(`[AI Scan] Trying model: ${model}`);
 
@@ -351,7 +436,7 @@ async function scanDocument(fileUrlOrBuffer, mimeType, docType = "facture") {
     return {
       success:          false,
       error:            errorMsg,
-      extractedData:    null,
+      extractedData:    emptyExtraction(docType),
       confidence_score: 0,
     };
   }

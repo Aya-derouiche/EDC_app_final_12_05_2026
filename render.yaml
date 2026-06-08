@@ -31,6 +31,10 @@ services:
         sync: false
       - key: MINIO_BUCKET
         value: edc-documents
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
 
   - type: web
     name: edc-gym-management
@@ -64,3 +68,7 @@ services:
         value: edc-documents
       - key: GYM_DEFAULT_TENANT_CODE
         value: ENT001
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GYM_GROQ_MODEL
+        value: llama-3.1-8b-instant

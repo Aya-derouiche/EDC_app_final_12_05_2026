@@ -9,8 +9,25 @@ const { minioClient, MINIO_BUCKET } = require("../../config/minio");
 const { scanDocument } = require("../../services/aiScan");
 
 async function tableExists(name) {
-  const r = await query("SELECT to_regclass($1) IS NOT NULL AS exists", [name]);
+  const tableName = String(name || "").split(".").pop();
+  const r = await query(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM information_schema.tables
+       WHERE table_schema = ANY (current_schemas(false))
+         AND table_name = $1
+     ) AS exists`,
+    [tableName]
+  );
   return r.rows[0]?.exists === true;
+}
+
+async function safeCount(tableName, whereSql = "") {
+  if (!(await tableExists(tableName))) return 0;
+  const safeTable = String(tableName || "").split(".").pop();
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(safeTable)) return 0;
+  const r = await query(`SELECT COUNT(*) AS total FROM ${safeTable} ${whereSql}`);
+  return Number(r.rows[0]?.total || 0);
 }
 
 async function verifyPassword(plain, stored) {
@@ -126,18 +143,16 @@ router.get("/home", requireAuth, async (req, res, next) => {
     if (await tableExists("public.utilisateurs")) {
       const r = await query("SELECT id, code_entreprise, code_user, identite, position, tel, email, role FROM utilisateurs WHERE id=$1 LIMIT 1", [req.user.id]);
       const user = r.rows[0];
-      if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
-      return res.json({ message: "Bienvenue sur la page d'accueil", user });
+      if (user) return res.json({ message: "Bienvenue sur la page d'accueil", user });
     }
 
     if (await tableExists("public.users")) {
       const r2 = await query("SELECT id, code_user, code_entreprise, identite, position, tel, email, role FROM users WHERE id=$1 LIMIT 1", [req.user.id]);
       const user2 = r2.rows[0];
-      if (!user2) return res.status(404).json({ message: "Utilisateur non trouvé" });
-      return res.json({ message: "Bienvenue sur la page d'accueil", user: user2 });
+      if (user2) return res.json({ message: "Bienvenue sur la page d'accueil", user: user2 });
     }
 
-    return res.status(500).json({ message: "Aucune table utilisateur disponible" });
+    return res.status(404).json({ message: "Utilisateur non trouvé" });
   } catch (e) { next(e); }
 });
 
@@ -152,21 +167,24 @@ router.get("/statistics", async (_req, res, next) => {
       usersCount = Number(u2.rows[0]?.totalusers || 0);
     }
 
-    const orders = await query("SELECT COUNT(*) AS totalorders FROM commandes");
-    const deliveries = await query("SELECT COUNT(*) AS totaldeliveries FROM commandes WHERE date_livraison_prevue IS NOT NULL");
-    const invoices = await query("SELECT COUNT(*) AS unpaidinvoices FROM facturations WHERE etat_payement = '0'");
+    const totalOrders = await safeCount("commandes");
+    const totalDeliveries = await safeCount("commandes", "WHERE date_livraison_prevue IS NOT NULL");
+    const unpaidInvoices = await safeCount("facturations", "WHERE etat_payement IN ('0', 'non paye', 'non payée', 'non payee')");
 
     res.json({
       totalUsers: usersCount,
-      totalOrders: Number(orders.rows[0]?.totalorders || 0),
-      totalDeliveries: Number(deliveries.rows[0]?.totaldeliveries || 0),
-      unpaidInvoices: Number(invoices.rows[0]?.unpaidinvoices || 0),
+      totalOrders,
+      totalDeliveries,
+      unpaidInvoices,
     });
   } catch (e) { next(e); }
 });
 
 router.get("/orders-per-period", requireAuth, async (req, res, next) => {
   try {
+    if (!(await tableExists("commandes"))) {
+      return res.json({ ordersPerPeriod: [] });
+    }
     const q = `SELECT TO_CHAR(date_commande, 'YYYY-MM') AS period, COUNT(*) AS count
                FROM commandes WHERE ajoute_par = $1 GROUP BY period ORDER BY period`;
     const r = await query(q, [req.user.id]);

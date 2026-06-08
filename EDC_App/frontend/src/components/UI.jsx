@@ -11,8 +11,6 @@ const NAVBAR_H  = 62;
 // ── Page wrapper ─────────────────────────────────────────────
 export const PageLayout = ({ children }) => (
   <div style={{
-    marginLeft: SIDEBAR_W,
-    paddingTop: NAVBAR_H,
     minHeight: "100vh",
     background: "#f4f6f9",
     fontFamily: "'Inter', sans-serif",
