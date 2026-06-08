@@ -186,7 +186,12 @@ function normalizeRole(role) {
 }
 
 function isHqUser(req) {
-  return hqRoles.has(normalizeRole(req.user?.role));
+  const role = normalizeRole(req.user?.role);
+  if (hqRoles.has(role)) return true;
+
+  // A gym_manager with a branch_id is scoped to that branch. Without one,
+  // the account is the central gym manager and must be able to manage branches.
+  return role === "gym_manager" && !userBranchId(req);
 }
 
 function userBranchId(req) {
@@ -3021,5 +3026,4 @@ router.get("/dashboard", async (req, res, next) => {
 });
 
 module.exports = router;
-
 
