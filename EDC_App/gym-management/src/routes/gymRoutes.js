@@ -54,10 +54,147 @@ function formatAmount(value) {
   return Number.isFinite(n) ? n.toFixed(3) : "0.000";
 }
 
-function ribCells(value) {
-  const chars = String(value || "").replace(/\s+/g, "").split("");
-  const count = Math.max(20, chars.length || 20);
-  return Array.from({ length: count }, (_, i) => `<span>${escapeHtml(chars[i] || "")}</span>`).join("");
+function normalizeMoney(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n.toFixed(3) : "0.000";
+}
+
+function stripDigits(value) {
+  return String(value || "").replace(/\s+/g, "");
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function dueDateForMonth(monthRef, dueDay) {
+  const normalizedMonth = String(monthRef || "").slice(0, 7);
+  const match = normalizedMonth.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return normalizedMonth ? `${normalizedMonth}-01` : "";
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const safeDay = Math.max(1, Math.min(Number(dueDay || 5), 31));
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = Math.min(safeDay, lastDay);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.toISOString().slice(0, 10);
+}
+
+function parsePagination(req, defaults = {}) {
+  const defaultLimit = Number(defaults.defaultLimit || 50);
+  const maxLimit = Number(defaults.maxLimit || 200);
+  const page = parsePositiveInt(req.query?.page, 1);
+  const limitRaw = req.query?.limit !== undefined ? parsePositiveInt(req.query.limit, defaultLimit) : defaultLimit;
+  const limit = Math.max(1, Math.min(limitRaw, maxLimit));
+  const offset = (page - 1) * limit;
+  return { page, limit, offset, paginated: req.query?.page !== undefined || req.query?.limit !== undefined };
+}
+
+function maybePaginatedResponse(rows, total, pagination) {
+  if (!pagination.paginated) return rows;
+  return {
+    items: rows,
+    pagination: {
+      page: pagination.page,
+      limit: pagination.limit,
+      total,
+      total_pages: total > 0 ? Math.ceil(total / pagination.limit) : 0,
+    },
+  };
+}
+
+const responseCache = new Map();
+function getCachedValue(key) {
+  const entry = responseCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    responseCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedValue(key, value, ttlMs = 30000) {
+  responseCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+async function fetchListWithPagination({ dataSql, countSql, params, pagination }) {
+  if (!pagination.paginated) {
+    const out = await query(dataSql, params);
+    return { rows: out.rows, total: out.rows.length };
+  }
+
+  const dataOut = await query(`${dataSql} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, pagination.limit, pagination.offset]);
+  const totalOut = await query(countSql, params);
+  return { rows: dataOut.rows, total: Number(totalOut.rows[0]?.total || 0) };
+}
+
+function userDisplayName(user) {
+  return user?.full_name || user?.name || user?.username || user?.email || String(user?.id || "unknown");
+}
+
+async function logGenerationOperation({ req, tenantCode, branchId = null, operationType, entityType = null, entityId = null, fileName = null, mimeType = null, status = "success", details = {} }) {
+  try {
+    await query(
+      `INSERT INTO gym_generation_logs
+       (tenant_code, branch_id, operation_type, entity_type, entity_id, file_name, mime_type, status, generated_by, details)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        tenantCode,
+        branchId,
+        operationType,
+        entityType,
+        entityId,
+        fileName,
+        mimeType,
+        status,
+        req.user?.id || null,
+        JSON.stringify({
+          ...details,
+          generated_by_label: userDisplayName(req.user),
+          generated_at: new Date().toISOString(),
+        }),
+      ]
+    );
+  } catch (error) {
+    console.warn("[gym generation log skipped]", error?.message || error);
+  }
+}
+
+function buildBankXml({ tenantCode, monthRef, generatedAt, generatedBy, rows }) {
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const entries = rows.map((row) => {
+    const contractNumber = row.contract_number || `SD-${row.subscription_id}`;
+    const authorizationReference = row.authorization_reference || row.deduction_doc_ref || `AUTH-SALARY-${row.subscription_id}`;
+    return [
+      "  <DirectDebit>",
+      `    <SubscriberFullName>${escapeXml(row.full_name || "")}</SubscriberFullName>`,
+      `    <MembershipNumber>${escapeXml(row.member_code || row.subscription_id || "")}</MembershipNumber>`,
+      `    <NationalIdNumber>${escapeXml(row.cin || "")}</NationalIdNumber>`,
+      `    <BankAccountNumber>${escapeXml(row.bank_account || "")}</BankAccountNumber>`,
+      `    <MonthlyAmount currency="DT">${escapeXml(normalizeMoney(row.amount))}</MonthlyAmount>`,
+      `    <ContractNumber>${escapeXml(contractNumber)}</ContractNumber>`,
+      `    <DirectDebitAuthorizationReference>${escapeXml(authorizationReference)}</DirectDebitAuthorizationReference>`,
+      `    <DueDate>${escapeXml(dueDateForMonth(monthRef, row.due_day || 5))}</DueDate>`,
+      `    <PaymentMethod>Salary Deduction</PaymentMethod>`,
+      `    <BranchName>${escapeXml(row.branch_name || "")}</BranchName>`,
+      "  </DirectDebit>",
+    ].join("\n");
+  }).join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<DirectDebitBatch xmlns="urn:edc:gym:salary-deduction" tenantCode="${escapeXml(tenantCode)}" monthRef="${escapeXml(monthRef)}" generatedAt="${escapeXml(generatedAt)}">
+  <BatchHeader>
+    <TotalEntries>${rows.length}</TotalEntries>
+    <TotalAmount currency="DT">${escapeXml(totalAmount.toFixed(3))}</TotalAmount>
+    <GeneratedBy userId="${escapeXml(generatedBy?.id || "")}">${escapeXml(userDisplayName(generatedBy))}</GeneratedBy>
+  </BatchHeader>
+  <DirectDebits>
+${entries}
+  </DirectDebits>
+</DirectDebitBatch>`;
 }
 
 function buildSalaryDeductionAuthorizationHtml(row) {
@@ -67,92 +204,145 @@ function buildSalaryDeductionAuthorizationHtml(row) {
   const contractNumber = row.contract_number || `SUB-${row.id}`;
   const city = row.branch_city || "Sousse";
   const deductionDay = Number(row.deduction_day || 5);
+  const authorizationReference = row.authorization_reference || row.deduction_doc_ref || `AUTH-SALARY-${row.id}`;
+  const rib = stripDigits(row.bank_account || "");
+  const ribChars = (rib || "").split("");
+  const ribBoxes = Array.from({ length: Math.max(20, ribChars.length || 20) }, (_, i) => `<span>${escapeHtml(ribChars[i] || "")}</span>`).join("");
   return `
     <style>
-      .auto-form { color: #222; font-family: Arial, sans-serif; font-size: 12.5px; line-height: 1.5; }
-      .auto-top { display: grid; grid-template-columns: 1fr 230px; gap: 20px; align-items: start; margin-bottom: 14px; }
-      .auto-title { border: 2px solid #333; font-size: 21px; font-weight: 700; margin: 0 auto; padding: 12px 24px; text-align: center; width: 560px; }
-      .auto-meta { font-size: 13px; line-height: 2.1; padding-top: 6px; }
-      .line { border-bottom: 1px dotted #555; display: inline-block; min-width: 230px; padding: 0 8px 1px; }
-      .line.small { min-width: 100px; }
-      .line.medium { min-width: 160px; }
-      .identity p, .body p { margin: 8px 0; }
-      .muted { color: #444; font-size: 11px; }
-      .rib-row { align-items: center; display: grid; gap: 14px; grid-template-columns: 130px 1fr; margin: 18px 0; }
-      .rib-cells { display: flex; flex-wrap: nowrap; }
-      .rib-cells span { border: 1px solid #444; border-left: 0; display: inline-block; font-size: 22px; height: 34px; line-height: 32px; min-width: 27px; text-align: center; }
-      .rib-cells span:first-child { border-left: 1px solid #444; }
-      .checkline { align-items: center; display: flex; gap: 24px; margin: 18px 0; }
-      .box { border: 1px solid #444; display: inline-block; font-weight: 700; height: 24px; line-height: 22px; margin: 0 4px; text-align: center; width: 34px; }
-      .tick { border: 1px solid #444; display: inline-block; height: 24px; line-height: 20px; text-align: center; vertical-align: middle; width: 34px; }
-      .company { margin: 13px 0; }
-      .bold-note { font-size: 15px; font-weight: 700; margin: 18px 0; }
-      .signatures-local { display: grid; grid-template-columns: 1fr 1fr; gap: 70px; margin-top: 30px; page-break-inside: avoid; }
-      .sign-box { min-height: 112px; }
-      .conditions { margin-top: 32px; }
-      .conditions h2 { border-bottom: 1px solid #222; display: inline-block; font-size: 16px; margin: 0 0 12px; padding: 0; }
-      .conditions p { margin: 10px 0; }
-      .conditions .indent { margin-left: 34px; }
+      @page { size: A4; margin: 10mm; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: #111827; font-family: Arial, Helvetica, sans-serif; }
+      .page { border: 1px solid #cbd5e1; background: #fff; }
+      .header { background: #163252; color: #fff; padding: 14px 18px 16px; }
+      .header-grid { display: grid; gap: 12px; grid-template-columns: 1.35fr 0.85fr; align-items: start; }
+      .org-name { font-size: 17px; font-weight: 800; letter-spacing: 0.2px; }
+      .org-sub { font-size: 11px; margin-top: 4px; opacity: 0.92; }
+      .header-meta { border-left: 1px solid rgba(255,255,255,0.35); padding-left: 14px; font-size: 11px; line-height: 1.8; }
+      .header-meta strong { display: inline-block; min-width: 78px; }
+      .title-wrap { padding: 14px 18px 10px; text-align: center; }
+      .title { border: 2px solid #163252; color: #163252; display: inline-block; font-size: 20px; font-weight: 800; padding: 10px 20px; min-width: 520px; }
+      .body { padding: 0 18px 16px; font-size: 12px; line-height: 1.45; }
+      .block { border: 1px solid #d7dee8; margin-bottom: 10px; padding: 10px 12px; }
+      .block-title { color: #163252; font-size: 12px; font-weight: 800; letter-spacing: 0.02em; margin: 0 0 8px; text-transform: uppercase; }
+      table.info { width: 100%; border-collapse: collapse; }
+      table.info td { border: 1px solid #b9c4d1; padding: 8px 10px; vertical-align: top; }
+      table.info td.label { background: #edf3f8; font-weight: 700; width: 30%; }
+      .two-col { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+      .line { border-bottom: 1px solid #94a3b8; display: inline-block; min-width: 160px; padding: 0 4px 2px; }
+      .statement { font-size: 12px; line-height: 1.6; text-align: justify; }
+      .amount-line { border-bottom: 2px solid #163252; color: #163252; display: inline-block; font-weight: 800; min-width: 90px; text-align: center; }
+      .rib-row { align-items: start; display: grid; gap: 10px; grid-template-columns: 145px 1fr; }
+      .rib-label { font-weight: 700; padding-top: 6px; }
+      .rib-grid { display: flex; flex-wrap: wrap; gap: 0; }
+      .rib-grid span { align-items: center; border: 1px solid #163252; display: inline-flex; font-size: 15px; height: 28px; justify-content: center; min-width: 26px; }
+      .choice-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+      .choice { border: 1px solid #7a8798; border-radius: 999px; padding: 5px 10px; display: inline-flex; align-items: center; gap: 8px; }
+      .choice .box { border: 1px solid #163252; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-weight: 700; }
+      .signature-row { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; margin-top: 12px; }
+      .signature-box { border: 1px solid #b9c4d1; min-height: 126px; padding: 10px 12px; }
+      .signature-title { font-weight: 800; margin-bottom: 6px; text-align: center; }
+      .footer { border-top: 1px solid #d7dee8; color: #374151; font-size: 11px; margin-top: 10px; padding-top: 8px; }
+      .conditions p { margin: 6px 0; }
+      .conditions .indent { margin-left: 16px; }
     </style>
-    <section class="auto-form">
-      <div class="auto-top">
-        <div class="auto-title">Autorisation de prélèvement automatique</div>
-        <div class="auto-meta">
-          <div><strong>contrat N°</strong> <span class="line small">${escapeHtml(contractNumber)}</span></div>
-          <div><strong>Salle :</strong> <span class="line small">${escapeHtml(branchName)}</span></div>
-          <div><strong>commercial</strong> <span class="line small"></span></div>
+    <section class="page">
+      <div class="header">
+        <div class="header-grid">
+          <div>
+            <div class="org-name">${escapeHtml(companyName)}</div>
+            <div class="org-sub">Autorisation de prélèvement sur salaire</div>
+          </div>
+          <div class="header-meta">
+            <div><strong>Contrat N°</strong> ${escapeHtml(contractNumber)}</div>
+            <div><strong>Agence</strong> ${escapeHtml(branchName)}</div>
+            <div><strong>Référence</strong> ${escapeHtml(authorizationReference)}</div>
+          </div>
         </div>
       </div>
 
-      <div class="identity">
-        <p>Je soussigné(e),</p>
-        <p><strong>Nom et Prénom :</strong> <span class="line">${blank(row.full_name, "")}</span></p>
-        <p class="muted">( Contrat au nom de : <span class="line medium">${blank(row.contract_holder, "")}</span> )</p>
-        <p><strong>C.I.N N°</strong> <span class="line medium">${blank(row.cin, "")}</span> délivrée le <span class="line medium"></span> à <span class="line medium"></span></p>
-        <p><strong>N° téléphone</strong> <span class="line medium">${blank(row.phone, "")}</span></p>
-      </div>
-
-      <div class="rib-row">
-        <strong>RIB Bancaire :</strong>
-        <div class="rib-cells">${ribCells(row.bank_account)}</div>
+      <div class="title-wrap">
+        <div class="title">Autorisation de prélèvement automatique</div>
       </div>
 
       <div class="body">
-        <p>autorise <strong>${escapeHtml(companyName)}</strong> à exécuter les ordres des prélèvements automatiques : fermes et irrévocables sur mon compte</p>
-        <p>une fois par mois <strong>à partir de mois de</strong> <span class="line medium">${formatMonthYear(row.start_date)}</span> <strong>et jusqu'au mois</strong> <span class="line medium">${formatMonthYear(row.end_date)}</span></p>
-        <div class="checkline">
-          <span>et ce ou bien le 05 de chaque mois <span class="box">5</span><span class="tick">${deductionDay === 5 ? "X" : ""}</span></span>
-          <span>ou bien le 26 de chaque mois <span class="box">26</span><span class="tick">${deductionDay === 26 ? "X" : ""}</span></span>
-          <span>( à mettre une croix )</span>
+        <div class="block">
+          <div class="block-title">Informations du titulaire</div>
+          <table class="info">
+            <tr><td class="label">Nom et prénom</td><td>${blank(row.full_name, "")}</td></tr>
+            <tr><td class="label">CIN</td><td>${blank(row.cin, "")}</td></tr>
+            <tr><td class="label">Matricule / Employé</td><td>${blank(row.employee_id, "")}</td></tr>
+            <tr><td class="label">Téléphone</td><td>${blank(row.phone, "")}</td></tr>
+          </table>
         </div>
-        <p>d'un montant de <span class="line small">${formatAmount(row.amount)}</span> dt,000 ( <span class="line"></span> ) <strong>au profit de la Société Olympe gym</strong></p>
-      </div>
 
-      <p class="company">MF : 1271307F A/M/000--adresse : Immeuble Badr Bloc B 4 ème étage - khezama 4 071-sousse</p>
-      <p class="company">et ce sur le compte N° <strong>25 016 0000000092680 24</strong> ouvert à <strong>Banque Zitouna</strong>-agence monastir</p>
-      <p class="bold-note">* Code de la sté olympe gym au niveau de La Banque Centrale : 0127</p>
-
-      <div class="signatures-local">
-        <div class="sign-box">
-          <p>Fait à <span class="line small">${escapeHtml(city)}</span>, Le <span class="line medium">${formatDate(today)}</span></p>
-          <p><strong>Signature du Titulaire du compte</strong><br>( Lu et approuvé )</p>
+        <div class="block">
+          <div class="block-title">Coordonnées bancaires</div>
+          <div class="rib-row">
+            <div class="rib-label">RIB / Compte bancaire</div>
+            <div>
+              <div style="margin-bottom: 8px;"><span class="line">${blank(row.bank_account, "")}</span></div>
+              <div class="rib-grid">${ribBoxes}</div>
+            </div>
+          </div>
         </div>
-        <div class="sign-box">
-          <p>Fait à <span class="line small"></span>, Le <span class="line medium"></span></p>
-          <p style="text-align:center;"><strong>Accord de la Banque</strong><br>( Visa et cachet du Chef d'agence )</p>
-        </div>
-      </div>
 
-      <div class="conditions">
-        <h2>Conditions particulières exigées :</h2>
-        <p><strong>1- Changement des coordonnées bancaires :</strong></p>
-        <p class="indent">* En cas de changement des coordonnées bancaires, l'abonné est tenu de refaire l'autorisation et de la déposer dans la salle de sport concernée : (olympe gym + olympe fitness extrême : Sousse et olympe Ennasr : Tunis).</p>
-        <p><strong>2- Modalités de résiliation de l'abonnement :</strong></p>
-        <p class="indent">* <strong><u>L'abonnement ne peut être résilié ni remboursé pendant la durée minimale, soit 12 mois.</u></strong> À l'issue de la durée minimale.</p>
-        <p class="indent">* L'abonnement est conclu pour une durée minimale de 12 mois. <strong><u>Cette durée est incompressible.</u></strong></p>
-        <p class="indent">* Les montants des prélèvements sont garantis pendant la période minimale de l'abonnement. Cependant, les montants des prélèvements mensuels peuvent être révisés à la hausse après la période minimale d'engagement.</p>
-        <p class="indent">* En cas d'impayés d'une échéance, la société olympe gym bloquera systématiquement l'abonnement.</p>
-        <p class="indent">* L'adhérent est tenu de régulariser le montant dû pour réactiver son abonnement.</p>
+        <div class="block">
+          <div class="block-title">Autorisation</div>
+          <div class="statement">
+            Je soussigné(e), <strong>${blank(row.full_name, "")}</strong>, autorise <strong>${escapeHtml(companyName)}</strong> à prélever
+            chaque mois sur mon compte bancaire le montant de <span class="amount-line">${escapeHtml(normalizeMoney(row.amount))}</span> DT,
+            à compter du <strong>${escapeHtml(formatMonthYear(row.start_date))}</strong> jusqu'au <strong>${escapeHtml(formatMonthYear(row.end_date))}</strong>.
+          </div>
+          <div class="choice-row">
+            <div class="choice"><span class="box">${deductionDay === 5 ? "X" : ""}</span> le 05 de chaque mois</div>
+            <div class="choice"><span class="box">${deductionDay === 26 ? "X" : ""}</span> le 26 de chaque mois</div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="block">
+            <div class="block-title">Détails bancaires</div>
+            <p><strong>Contrat N° :</strong> ${escapeHtml(contractNumber)}</p>
+            <p><strong>Référence d'autorisation :</strong> ${escapeHtml(authorizationReference)}</p>
+            <p><strong>Ville :</strong> ${escapeHtml(city)}</p>
+            <p><strong>Date :</strong> ${escapeHtml(formatDate(today))}</p>
+          </div>
+          <div class="block">
+            <div class="block-title">Montant</div>
+            <p><strong>Mensualité :</strong> ${escapeHtml(normalizeMoney(row.amount))} DT</p>
+            <p><strong>Signature :</strong> à apposer ci-dessous</p>
+            <p><strong>Statut :</strong> prêt pour impression et dépôt</p>
+          </div>
+        </div>
+
+        <div class="signature-row">
+          <div class="signature-box">
+            <div class="signature-title">Signature du titulaire du compte</div>
+            <p>(Lu et approuvé)</p>
+            <p style="margin-top: 38px;">Nom: <span class="line">${blank(row.full_name, "")}</span></p>
+          </div>
+          <div class="signature-box">
+            <div class="signature-title">Accord de la banque</div>
+            <p style="text-align:center;">Visa et cachet du chef d'agence</p>
+            <p style="margin-top: 38px;">Cachet: ____________________</p>
+          </div>
+        </div>
+
+        <div class="block conditions" style="margin-top: 12px;">
+          <div class="block-title">Conditions particulières</div>
+          <p><strong>1 - Changement des coordonnées bancaires :</strong></p>
+          <p class="indent">En cas de changement des coordonnées bancaires, l'abonné doit refaire l'autorisation et la déposer à la salle concernée.</p>
+          <p><strong>2 - Modalités de résiliation de l'abonnement :</strong></p>
+          <p class="indent"><strong><u>L'abonnement ne peut pas être résilié ni remboursé pendant la durée minimale de 12 mois.</u></strong></p>
+          <p class="indent">L'abonnement est conclu pour une durée minimale de 12 mois. <strong><u>Cette durée est incompressible.</u></strong></p>
+          <p class="indent">Les montants des prélèvements peuvent être révisés après la période minimale d'engagement.</p>
+          <p class="indent">En cas d'impayé, l'abonnement peut être bloqué jusqu'à régularisation.</p>
+        </div>
+
+        <div class="footer">
+          Fait à ${escapeHtml(city)}, le ${escapeHtml(formatDate(today))}. Référence dossier ${escapeHtml(contractNumber)}.
+        </div>
       </div>
     </section>
   `;
@@ -500,6 +690,7 @@ async function runEnsureSchema() {
       amount NUMERIC(14,3) NOT NULL,
       payment_method VARCHAR(40) NOT NULL CHECK (payment_method IN ('direct','salary_deduction')),
       workflow_status VARCHAR(40) NOT NULL DEFAULT 'pending' CHECK (workflow_status IN ('pending','printed','sent_hq','processed')),
+      status VARCHAR(30) NOT NULL DEFAULT 'pending_validation' CHECK (status IN ('pending_validation','active','suspended','cancelled')),
       due_day INT NOT NULL DEFAULT 5,
       start_date DATE NOT NULL,
       end_date DATE,
@@ -545,6 +736,8 @@ async function runEnsureSchema() {
       id BIGSERIAL PRIMARY KEY,
       subscription_id BIGINT NOT NULL REFERENCES gym_subscriptions(id) ON DELETE CASCADE,
       tenant_code VARCHAR(80) NOT NULL,
+      contract_number VARCHAR(80),
+      authorization_reference VARCHAR(120),
       contract_pdf_path TEXT,
       mandate_pdf_path TEXT,
       authorization_pdf_path TEXT,
@@ -594,6 +787,23 @@ async function runEnsureSchema() {
       minio_bucket VARCHAR(120),
       minio_object_key TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS gym_generation_logs (
+      id BIGSERIAL PRIMARY KEY,
+      tenant_code VARCHAR(80) NOT NULL,
+      branch_id BIGINT REFERENCES gym_branches(id) ON DELETE SET NULL,
+      operation_type VARCHAR(80) NOT NULL,
+      entity_type VARCHAR(80),
+      entity_id BIGINT,
+      file_name VARCHAR(255),
+      mime_type VARCHAR(160),
+      status VARCHAR(30) NOT NULL DEFAULT 'success' CHECK (status IN ('success','failed')),
+      generated_by BIGINT,
+      details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      generated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
 
@@ -851,9 +1061,12 @@ async function runEnsureSchema() {
     `ALTER TABLE gym_subscriptions ADD COLUMN IF NOT EXISTS end_date DATE`,
     `ALTER TABLE gym_subscriptions ADD COLUMN IF NOT EXISTS deduction_doc_ref TEXT`,
     `ALTER TABLE gym_subscriptions ADD COLUMN IF NOT EXISTS validated_by BIGINT`,
+    `ALTER TABLE gym_subscriptions ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'pending_validation'`,
     `ALTER TABLE gym_payments ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP`,
     `ALTER TABLE gym_payments ADD COLUMN IF NOT EXISTS failure_reason TEXT`,
     `ALTER TABLE gym_payments ADD COLUMN IF NOT EXISTS reference VARCHAR(120)`,
+    `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS contract_number VARCHAR(80)`,
+    `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS authorization_reference VARCHAR(120)`,
     `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS contract_pdf_path TEXT`,
     `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS mandate_pdf_path TEXT`,
     `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS authorization_pdf_path TEXT`,
@@ -865,11 +1078,16 @@ async function runEnsureSchema() {
     `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP`,
     `CREATE INDEX IF NOT EXISTS idx_gym_members_tenant_branch ON gym_members(code_entreprise, branch_id)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_subscriptions_tenant_branch ON gym_subscriptions(code_entreprise, branch_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_gym_subscriptions_tenant_payment_status ON gym_subscriptions(code_entreprise, payment_method, status, workflow_status)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_coaches_tenant_branch ON gym_coaches(code_entreprise, branch_id)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_payments_month_status ON gym_payments(month_ref, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_gym_payments_subscription_due ON gym_payments(subscription_id, due_date)`,
+    `CREATE INDEX IF NOT EXISTS idx_gym_contracts_tenant_validation ON gym_contracts(tenant_code, validation_status)`,
+    `CREATE INDEX IF NOT EXISTS idx_hq_validation_queue_tenant_status ON hq_validation_queue(tenant_code, status)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_notifications_tenant_status ON gym_notifications(tenant_code, status)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_notifications_tenant_branch ON gym_notifications(tenant_code, branch_id)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_files_tenant_branch ON gym_files(tenant_code, branch_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_gym_generation_logs_tenant_type_date ON gym_generation_logs(tenant_code, operation_type, generated_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_attendance_tenant_date ON gym_attendance(code_entreprise, checked_in_at)`,
     `CREATE INDEX IF NOT EXISTS idx_gym_access_events_tenant_date ON gym_access_events(code_entreprise, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_contracts_tenant_status ON contracts(tenant_code, status)`,
@@ -1758,15 +1976,20 @@ router.get("/members", async (req, res, next) => {
     const params = [scope.code];
     const where = ["m.code_entreprise=$1"];
     addBranchCondition(where, params, scope, "m");
-    const r = await query(
-      `SELECT m.*, b.branch_name
-       FROM gym_members m
-       LEFT JOIN gym_branches b ON b.id=m.branch_id
-       WHERE ${where.join(" AND ")}
-       ORDER BY m.id DESC`,
-      params
-    );
-    res.json(r.rows);
+    const pagination = parsePagination(req, { defaultLimit: 40, maxLimit: 200 });
+    const { rows, total } = await fetchListWithPagination({
+      dataSql: `SELECT m.*, b.branch_name
+                FROM gym_members m
+                LEFT JOIN gym_branches b ON b.id=m.branch_id
+                WHERE ${where.join(" AND ")}
+                ORDER BY m.id DESC`,
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM gym_members m
+                 WHERE ${where.join(" AND ")}`,
+      params,
+      pagination,
+    });
+    res.json(maybePaginatedResponse(rows, total, pagination));
   } catch (e) { next(e); }
 });
 
@@ -1814,6 +2037,7 @@ router.post("/subscriptions", requireRole("admin", "super_admin", "hq_admin", "g
     const b = req.body || {};
     const paymentMethod = String(b.payment_method || "direct");
     const workflow = paymentMethod === "salary_deduction" ? "printed" : (b.workflow_status || "processed");
+    const subscriptionStatus = paymentMethod === "salary_deduction" ? "pending_validation" : "active";
     const branchId = scopedBranchId(scope, b.branch_id || null);
     const memberParams = [b.member_id, scope.code];
     const memberWhere = ["id=$1", "code_entreprise=$2"];
@@ -1823,10 +2047,10 @@ router.post("/subscriptions", requireRole("admin", "super_admin", "hq_admin", "g
 
     const r = await query(
       `INSERT INTO gym_subscriptions
-      (code_entreprise, branch_id, member_id, plan_name, amount, payment_method, workflow_status, due_day, start_date, end_date, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,5),$9,$10,$11)
+      (code_entreprise, branch_id, member_id, plan_name, amount, payment_method, workflow_status, status, due_day, start_date, end_date, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,5),$10,$11,$12)
       RETURNING *`,
-      [scope.code, branchId, b.member_id, b.plan_name, b.amount, paymentMethod, workflow, b.due_day || 5, b.start_date, b.end_date || null, req.user?.id || null]
+      [scope.code, branchId, b.member_id, b.plan_name, b.amount, paymentMethod, workflow, subscriptionStatus, b.due_day || 5, b.start_date, b.end_date || null, req.user?.id || null]
     );
 
     const created = r.rows[0];
@@ -1840,9 +2064,15 @@ router.post("/subscriptions", requireRole("admin", "super_admin", "hq_admin", "g
 
     if (paymentMethod === "salary_deduction") {
       await query(
-        `INSERT INTO gym_contracts (subscription_id, tenant_code, validation_status, authorization_pdf_path)
-         VALUES ($1,$2,'pending_hq',$3)`,
-        [created.id, scope.code, `/api/v1/gym/subscriptions/${created.id}/authorization-form.pdf`]
+        `INSERT INTO gym_contracts (subscription_id, tenant_code, contract_number, authorization_reference, validation_status, authorization_pdf_path)
+         VALUES ($1,$2,$3,$4,'pending_hq',$5)`,
+        [
+          created.id,
+          scope.code,
+          `SD-${created.id}`,
+          `AUTH-SALARY-${created.id}`,
+          `/api/v1/gym/subscriptions/${created.id}/authorization-form.pdf`,
+        ]
       );
 
       await query(
@@ -1882,16 +2112,22 @@ router.get("/subscriptions", async (req, res, next) => {
     const params = [scope.code];
     const where = ["s.code_entreprise=$1"];
     addBranchCondition(where, params, scope, "s");
-    const r = await query(
-      `SELECT s.*, m.full_name, m.member_code, b.branch_name
-       FROM gym_subscriptions s
-       JOIN gym_members m ON m.id = s.member_id
-       LEFT JOIN gym_branches b ON b.id=s.branch_id
-       WHERE ${where.join(" AND ")}
-       ORDER BY s.id DESC`,
-      params
-    );
-    res.json(r.rows);
+    const pagination = parsePagination(req, { defaultLimit: 40, maxLimit: 200 });
+    const { rows, total } = await fetchListWithPagination({
+      dataSql: `SELECT s.*, m.full_name, m.member_code, b.branch_name
+                FROM gym_subscriptions s
+                JOIN gym_members m ON m.id = s.member_id
+                LEFT JOIN gym_branches b ON b.id=s.branch_id
+                WHERE ${where.join(" AND ")}
+                ORDER BY s.id DESC`,
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM gym_subscriptions s
+                 JOIN gym_members m ON m.id = s.member_id
+                 WHERE ${where.join(" AND ")}`,
+      params,
+      pagination,
+    });
+    res.json(maybePaginatedResponse(rows, total, pagination));
   } catch (e) { next(e); }
 });
 
@@ -1900,20 +2136,26 @@ router.get("/hq/validations", requireRole("hq_admin", "super_admin", "admin"), a
     await ensureSchema();
     const code = String(tenantCode(req) || "");
     const status = String(req.query.status || "pending");
+    const pagination = parsePagination(req, { defaultLimit: 40, maxLimit: 200 });
 
-    const out = await query(
-      `SELECT q.*, s.member_id, s.plan_name, s.amount, s.start_date, s.payment_method,
-              m.full_name, m.member_code, c.validation_status, c.hq_comment
-       FROM hq_validation_queue q
-       JOIN gym_subscriptions s ON s.id=q.subscription_id
-       LEFT JOIN gym_members m ON m.id=s.member_id
-       LEFT JOIN gym_contracts c ON c.subscription_id=s.id
-       WHERE q.tenant_code=$1 AND q.status=$2
-       ORDER BY q.id DESC`,
-      [code, status]
-    );
+    const params = [code, status];
+    const { rows, total } = await fetchListWithPagination({
+      dataSql: `SELECT q.*, s.member_id, s.plan_name, s.amount, s.start_date, s.payment_method,
+                       m.full_name, m.member_code, c.validation_status, c.hq_comment
+                FROM hq_validation_queue q
+                JOIN gym_subscriptions s ON s.id=q.subscription_id
+                LEFT JOIN gym_members m ON m.id=s.member_id
+                LEFT JOIN gym_contracts c ON c.subscription_id=s.id
+                WHERE q.tenant_code=$1 AND q.status=$2
+                ORDER BY q.id DESC`,
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM hq_validation_queue q
+                 WHERE q.tenant_code=$1 AND q.status=$2`,
+      params,
+      pagination,
+    });
 
-    res.json(out.rows);
+    res.json(maybePaginatedResponse(rows, total, pagination));
   } catch (e) { next(e); }
 });
 
@@ -1926,9 +2168,9 @@ router.post("/hq/validate/:subscriptionId", requireRole("hq_admin", "super_admin
     const comment = req.body?.comment || null;
 
     const map = {
-      approve: { queue: "approved", contract: "approved", workflow: "processed" },
-      reject: { queue: "rejected", contract: "rejected", workflow: "pending" },
-      needs_update: { queue: "needs_update", contract: "needs_update", workflow: "pending" },
+      approve: { queue: "approved", contract: "approved", workflow: "processed", status: "active" },
+      reject: { queue: "rejected", contract: "rejected", workflow: "pending", status: "pending_validation" },
+      needs_update: { queue: "needs_update", contract: "needs_update", workflow: "pending", status: "pending_validation" },
     };
 
     if (!map[action]) {
@@ -1954,10 +2196,10 @@ router.post("/hq/validate/:subscriptionId", requireRole("hq_admin", "super_admin
 
     const updatedSub = await query(
       `UPDATE gym_subscriptions
-       SET workflow_status=$1, validated_by=$2, updated_at=NOW()
-       WHERE id=$3
+       SET workflow_status=$1, status=$2, validated_by=$3, updated_at=NOW()
+       WHERE id=$4
        RETURNING *`,
-      [map[action].workflow, req.user?.id || null, subscriptionId]
+      [map[action].workflow, map[action].status, req.user?.id || null, subscriptionId]
     );
 
     await safeCreateNotification({
@@ -2093,10 +2335,12 @@ router.get("/subscriptions/:id/authorization-form", async (req, res, next) => {
     const r = await query(
       `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.plan_name, s.code_entreprise,
               m.full_name, m.employee_id, m.cin, m.bank_account, m.phone,
-              b.branch_name, b.city AS branch_city
+              b.branch_name, b.city AS branch_city,
+              c.contract_number, c.authorization_reference
        FROM gym_subscriptions s
        JOIN gym_members m ON m.id=s.member_id
        LEFT JOIN gym_branches b ON b.id=s.branch_id
+       LEFT JOIN gym_contracts c ON c.subscription_id=s.id AND c.tenant_code=s.code_entreprise
        WHERE ${where.join(" AND ")}`,
       params
     );
@@ -2109,7 +2353,14 @@ router.get("/subscriptions/:id/authorization-form", async (req, res, next) => {
       entity_type: "subscription",
       entity_id: x.id,
     });
-    res.json({ subscription_id: x.id, generated_at: new Date().toISOString(), authorization_text: text });
+    res.setHeader("X-Gym-Message", "Authorization form preview generated successfully.");
+    res.json({
+      subscription_id: x.id,
+      generated_at: new Date().toISOString(),
+      authorization_text: text,
+      contract_number: x.contract_number || `SD-${x.id}`,
+      authorization_reference: x.authorization_reference || `AUTH-SALARY-${x.id}`,
+    });
   } catch (e) { next(e); }
 });
 
@@ -2125,7 +2376,7 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
       `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.plan_name, s.code_entreprise,
               m.full_name, m.employee_id, m.cin, m.bank_account, m.phone,
               b.branch_name, b.city AS branch_city,
-              c.id AS contract_id
+              c.id AS contract_id, c.contract_number, c.authorization_reference
        FROM gym_subscriptions s
        JOIN gym_members m ON m.id=s.member_id
        LEFT JOIN gym_branches b ON b.id=s.branch_id
@@ -2179,6 +2430,21 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
       [`minio:${savedFile.minio_object_key}`, scope.code, r.rows[0].id]
     );
 
+    await logGenerationOperation({
+      req,
+      tenantCode: scope.code,
+      branchId: r.rows[0].branch_id || null,
+      operationType: "authorization_pdf",
+      entityType: "subscription",
+      entityId: r.rows[0].id,
+      fileName,
+      mimeType: "application/pdf",
+      details: {
+        contract_number: r.rows[0].contract_number || `SD-${r.rows[0].id}`,
+        authorization_reference: r.rows[0].authorization_reference || `AUTH-SALARY-${r.rows[0].id}`,
+      },
+    });
+
     await safeCreateNotification({
       tenant_code: scope.code,
       type: "authorization_form_generated",
@@ -2188,6 +2454,7 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader("X-Gym-Message", "Authorization PDF generated successfully.");
     res.send(pdf);
   } catch (e) { next(e); }
 });
@@ -2331,52 +2598,58 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
     const scope = requireBranchScope(req, res);
     if (!scope) return;
     const code = scope.code;
+    const params = [code];
+    const where = [
+      "s.code_entreprise=$1",
+      "s.payment_method='salary_deduction'",
+      "s.status='active'",
+      "s.workflow_status='processed'",
+      "c.validation_status IN ('approved','validated')",
+      "q.status IN ('approved','validated')",
+    ];
+    addBranchCondition(where, params, scope, "s");
+
+    const validated = await query(
+      `SELECT s.id AS subscription_id, s.amount, s.due_day, s.start_date, s.end_date, s.workflow_status, s.status AS subscription_status,
+              s.deduction_doc_ref,
+              m.full_name, m.member_code, m.employee_id, m.cin, m.bank_account,
+              c.contract_number, c.authorization_reference, c.validation_status,
+              b.branch_name
+       FROM gym_subscriptions s
+       JOIN gym_members m ON m.id=s.member_id
+       JOIN gym_contracts c ON c.subscription_id=s.id AND c.tenant_code=s.code_entreprise
+       JOIN hq_validation_queue q ON q.subscription_id=s.id AND q.tenant_code=s.code_entreprise
+       LEFT JOIN gym_branches b ON b.id=s.branch_id
+       WHERE ${where.join(" AND ")}
+       ORDER BY s.id ASC`,
+      params
+    );
+
+    if (!validated.rows.length) {
+      return res.status(409).json({
+        error: "No validated salary deduction requests found",
+        message: "XML generation is blocked until at least one salary deduction subscription is approved by HQ and active.",
+      });
+    }
+
+    const generatedAt = new Date().toISOString();
+    const fileName = `salary_deduction_${code}_${monthRef}.xml`;
+    const xml = buildBankXml({
+      tenantCode: code,
+      monthRef,
+      generatedAt,
+      generatedBy: req.user || {},
+      rows: validated.rows,
+    });
+    const xmlBuffer = Buffer.from(xml, "utf8");
 
     const job = await query(
-      `INSERT INTO gym_batch_jobs (code_entreprise, month_ref, status, created_by)
-       VALUES ($1,$2,'processed',$3)
+      `INSERT INTO gym_batch_jobs (code_entreprise, month_ref, status, created_by, processed_by, processed_at)
+       VALUES ($1,$2,'processed',$3,$3,NOW())
        RETURNING *`,
       [code, monthRef, req.user?.id || null]
     );
 
-    const payParams = [code, monthRef];
-    const payWhere = [
-      "s.code_entreprise=$1",
-      "p.month_ref=$2",
-      "s.payment_method='salary_deduction'",
-      "s.workflow_status='processed'",
-      "p.status IN ('pending','retry_scheduled','insufficient_funds')",
-    ];
-    addBranchCondition(payWhere, payParams, scope, "s");
-    const pays = await query(
-      `SELECT p.id, p.amount, p.month_ref, p.due_date, p.status,
-              s.id AS subscription_id, s.plan_name,
-              m.full_name, m.employee_id, m.bank_account, m.cin
-       FROM gym_payments p
-       JOIN gym_subscriptions s ON s.id=p.subscription_id
-       JOIN gym_members m ON m.id=s.member_id
-       WHERE ${payWhere.join(" AND ")}`,
-      payParams
-    );
-
-    const lines = pays.rows.map((x) =>
-      `  <Deduction>` +
-      `<PaymentId>${escapeXml(x.id)}</PaymentId>` +
-      `<SubscriptionId>${escapeXml(x.subscription_id)}</SubscriptionId>` +
-      `<EmployeeId>${escapeXml(x.employee_id || "")}</EmployeeId>` +
-      `<MemberName>${escapeXml(x.full_name || "")}</MemberName>` +
-      `<CIN>${escapeXml(x.cin || "")}</CIN>` +
-      `<BankAccount>${escapeXml(x.bank_account || "")}</BankAccount>` +
-      `<Plan>${escapeXml(x.plan_name || "")}</Plan>` +
-      `<Amount currency="DT">${escapeXml(x.amount)}</Amount>` +
-      `<DueDate>${escapeXml(String(x.due_date || "").slice(0, 10))}</DueDate>` +
-      `<Status>${escapeXml(x.status)}</Status>` +
-      `</Deduction>`
-    ).join("\n");
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<SalaryDeductions tenant="${escapeXml(code)}" month="${escapeXml(monthRef)}" generatedAt="${new Date().toISOString()}">\n${lines}\n</SalaryDeductions>`;
-    const fileName = `salary_deduction_${code}_${monthRef}.xml`;
-    const xmlBuffer = Buffer.from(xml, "utf8");
     const savedXml = await saveGymGeneratedFile({
       req,
       tenantCode: code,
@@ -2396,6 +2669,22 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       [job.rows[0].id, fileName, xml, savedXml.minio_bucket, savedXml.minio_object_key]
     );
 
+    await logGenerationOperation({
+      req,
+      tenantCode: code,
+      branchId: scope.branchId || null,
+      operationType: "salary_deduction_bank_xml",
+      entityType: "bank_batch",
+      entityId: job.rows[0].id,
+      fileName,
+      mimeType: "application/xml",
+      details: {
+        month_ref: monthRef,
+        total_entries: validated.rows.length,
+        total_amount: validated.rows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+      },
+    });
+
     await safeCreateNotification({
       tenant_code: code,
       type: "bank_xml_generated",
@@ -2404,9 +2693,33 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       message: `Bank XML batch file generated successfully: ${fileName}`,
     });
 
-    res.json({ batch_job: job.rows[0], export: exp.rows[0] });
+    const payload = {
+      message: "Bank XML file generated successfully.",
+      batch_job: job.rows[0],
+      export: exp.rows[0],
+      download_url: `/api/v1/gym/bank-exports/${exp.rows[0].id}/download`,
+    };
+
+    res.setHeader("X-Gym-Message", payload.message);
+
+    if (String(req.query?.download || "").toLowerCase() === "1" || String(req.query?.download || "").toLowerCase() === "true") {
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      return res.send(xml);
+    }
+
+    res.json(payload);
   } catch (e) {
     try {
+      await logGenerationOperation({
+        req,
+        tenantCode: String(tenantCode(req) || config.defaultTenantCode),
+        branchId: null,
+        operationType: "salary_deduction_bank_xml",
+        entityType: "bank_batch",
+        status: "failed",
+        details: { error: e?.message || "Bank XML file generation failed." },
+      });
       await safeCreateNotification({
         tenant_code: String(tenantCode(req) || config.defaultTenantCode),
         type: "bank_xml_failed",
@@ -2425,16 +2738,22 @@ router.get("/contracts", async (req, res, next) => {
     const params = [scope.code];
     const where = ["c.tenant_code=$1"];
     addBranchCondition(where, params, scope, "s");
-    const out = await query(
-      `SELECT c.*, s.plan_name, s.amount, s.payment_method, s.workflow_status, m.full_name, m.member_code
-       FROM gym_contracts c
-       JOIN gym_subscriptions s ON s.id=c.subscription_id
-       LEFT JOIN gym_members m ON m.id=s.member_id
-       WHERE ${where.join(" AND ")}
-       ORDER BY c.id DESC`,
-      params
-    );
-    res.json(out.rows);
+    const pagination = parsePagination(req, { defaultLimit: 40, maxLimit: 200 });
+    const { rows, total } = await fetchListWithPagination({
+      dataSql: `SELECT c.*, s.plan_name, s.amount, s.payment_method, s.workflow_status, m.full_name, m.member_code
+                FROM gym_contracts c
+                JOIN gym_subscriptions s ON s.id=c.subscription_id
+                LEFT JOIN gym_members m ON m.id=s.member_id
+                WHERE ${where.join(" AND ")}
+                ORDER BY c.id DESC`,
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM gym_contracts c
+                 JOIN gym_subscriptions s ON s.id=c.subscription_id
+                 WHERE ${where.join(" AND ")}`,
+      params,
+      pagination,
+    });
+    res.json(maybePaginatedResponse(rows, total, pagination));
   } catch (e) { next(e); }
 });
 
@@ -2446,18 +2765,24 @@ router.get("/authorizations", async (req, res, next) => {
     const params = [scope.code];
     const where = ["s.code_entreprise=$1", "s.payment_method='salary_deduction'"];
     addBranchCondition(where, params, scope, "s");
-    const out = await query(
-      `SELECT s.id AS subscription_id, s.amount, s.start_date, s.workflow_status,
-              m.full_name, m.member_code, m.employee_id, m.cin, m.bank_account,
-              c.authorization_pdf_path, c.validation_status
-       FROM gym_subscriptions s
-       JOIN gym_members m ON m.id=s.member_id
-       LEFT JOIN gym_contracts c ON c.subscription_id=s.id
-       WHERE ${where.join(" AND ")}
-       ORDER BY s.id DESC`,
-      params
-    );
-    res.json(out.rows);
+    const pagination = parsePagination(req, { defaultLimit: 40, maxLimit: 200 });
+    const { rows, total } = await fetchListWithPagination({
+      dataSql: `SELECT s.id AS subscription_id, s.amount, s.start_date, s.workflow_status,
+                       m.full_name, m.member_code, m.employee_id, m.cin, m.bank_account,
+                       c.authorization_pdf_path, c.validation_status
+                FROM gym_subscriptions s
+                JOIN gym_members m ON m.id=s.member_id
+                LEFT JOIN gym_contracts c ON c.subscription_id=s.id
+                WHERE ${where.join(" AND ")}
+                ORDER BY s.id DESC`,
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM gym_subscriptions s
+                 JOIN gym_members m ON m.id=s.member_id
+                 WHERE ${where.join(" AND ")}`,
+      params,
+      pagination,
+    });
+    res.json(maybePaginatedResponse(rows, total, pagination));
   } catch (e) { next(e); }
 });
 
@@ -2469,17 +2794,23 @@ router.get("/payments", async (req, res, next) => {
     const params = [scope.code];
     const where = ["s.code_entreprise=$1"];
     addBranchCondition(where, params, scope, "s");
-    const out = await query(
-      `SELECT p.*, s.plan_name, s.payment_method, b.branch_name, m.full_name, m.member_code
-       FROM gym_payments p
-       JOIN gym_subscriptions s ON s.id=p.subscription_id
-       LEFT JOIN gym_branches b ON b.id=s.branch_id
-       LEFT JOIN gym_members m ON m.id=s.member_id
-       WHERE ${where.join(" AND ")}
-       ORDER BY p.due_date DESC, p.id DESC`,
-      params
-    );
-    res.json(out.rows);
+    const pagination = parsePagination(req, { defaultLimit: 40, maxLimit: 200 });
+    const { rows, total } = await fetchListWithPagination({
+      dataSql: `SELECT p.*, s.plan_name, s.payment_method, b.branch_name, m.full_name, m.member_code
+                FROM gym_payments p
+                JOIN gym_subscriptions s ON s.id=p.subscription_id
+                LEFT JOIN gym_branches b ON b.id=s.branch_id
+                LEFT JOIN gym_members m ON m.id=s.member_id
+                WHERE ${where.join(" AND ")}
+                ORDER BY p.due_date DESC, p.id DESC`,
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM gym_payments p
+                 JOIN gym_subscriptions s ON s.id=p.subscription_id
+                 WHERE ${where.join(" AND ")}`,
+      params,
+      pagination,
+    });
+    res.json(maybePaginatedResponse(rows, total, pagination));
   } catch (e) { next(e); }
 });
 
@@ -2512,16 +2843,22 @@ router.get("/bank-exports", requireRole("admin", "super_admin", "hq_admin"), asy
     await ensureSchema();
     const scope = requireBranchScope(req, res);
     if (!scope) return;
-    const out = await query(
-      `SELECT e.*, j.month_ref, j.status AS batch_status
-       FROM gym_salary_deduction_exports e
-       JOIN gym_batch_jobs j ON j.id=e.batch_job_id
-       WHERE j.code_entreprise=$1
-       ORDER BY e.id DESC
-       LIMIT 50`,
-      [scope.code]
-    );
-    res.json(out.rows);
+    const params = [scope.code];
+    const pagination = parsePagination(req, { defaultLimit: 25, maxLimit: 100 });
+    const { rows, total } = await fetchListWithPagination({
+      dataSql: `SELECT e.*, j.month_ref, j.status AS batch_status
+                FROM gym_salary_deduction_exports e
+                JOIN gym_batch_jobs j ON j.id=e.batch_job_id
+                WHERE j.code_entreprise=$1
+                ORDER BY e.id DESC`,
+      countSql: `SELECT COUNT(*)::int AS total
+                 FROM gym_salary_deduction_exports e
+                 JOIN gym_batch_jobs j ON j.id=e.batch_job_id
+                 WHERE j.code_entreprise=$1`,
+      params,
+      pagination,
+    });
+    res.json(maybePaginatedResponse(rows, total, pagination));
   } catch (e) { next(e); }
 });
 
@@ -2912,6 +3249,12 @@ router.get("/statistics", async (req, res, next) => {
     await ensureSchema();
     const scope = requireBranchScope(req, res);
     if (!scope) return;
+    const cacheKey = `statistics:${scope.code}:${scope.branchId || "all"}`;
+    const cached = getCachedValue(cacheKey);
+    if (cached) {
+      res.setHeader("X-Gym-Cache", "HIT");
+      return res.json(cached);
+    }
     const branchSql = scope.branchId ? " AND branch_id=$2" : "";
     const params = scope.branchId ? [scope.code, scope.branchId] : [scope.code];
     const out = await query(
@@ -2924,7 +3267,10 @@ router.get("/statistics", async (req, res, next) => {
          (SELECT COALESCE(SUM(CASE WHEN direction='in' THEN amount ELSE -amount END),0) FROM gym_cash_transactions WHERE code_entreprise=$1${branchSql}) AS cash_balance`,
       params
     );
-    res.json(out.rows[0]);
+    const payload = out.rows[0];
+    setCachedValue(cacheKey, payload, 15000);
+    res.setHeader("X-Gym-Cache", "MISS");
+    res.json(payload);
   } catch (e) { next(e); }
 });
 
@@ -2933,6 +3279,12 @@ router.get("/dashboard", async (req, res, next) => {
     await ensureSchema();
     const scope = requireBranchScope(req, res);
     if (!scope) return;
+    const cacheKey = `dashboard:${scope.code}:${scope.branchId || "all"}`;
+    const cached = getCachedValue(cacheKey);
+    if (cached) {
+      res.setHeader("X-Gym-Cache", "HIT");
+      return res.json(cached);
+    }
     const subFilter = scope.branchId ? " AND s.branch_id=$2" : "";
     const tableFilter = scope.branchId ? " AND branch_id=$2" : "";
     const params = scope.branchId ? [scope.code, scope.branchId] : [scope.code];
@@ -3008,8 +3360,7 @@ router.get("/dashboard", async (req, res, next) => {
 
     const ps = payStats.rows[0] || { success_count: 0, failed_count: 0, total_count: 0 };
     const rate = Number(ps.total_count) > 0 ? (Number(ps.success_count) * 100) / Number(ps.total_count) : 0;
-
-    res.json({
+    const payload = {
       revenue: Number(revenue.rows[0]?.value || 0),
       unpaid_subscriptions: Number(unpaid.rows[0]?.value || 0),
       active_subscribers: Number(activeSubs.rows[0]?.value || 0),
@@ -3021,9 +3372,10 @@ router.get("/dashboard", async (req, res, next) => {
         total: Number(ps.total_count || 0),
       },
       branch_performance: byBranch.rows,
-    });
+    };
+    setCachedValue(cacheKey, payload, 15000);
+    res.json(payload);
   } catch (e) { next(e); }
 });
 
 module.exports = router;
-

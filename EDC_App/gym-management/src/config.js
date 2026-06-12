@@ -45,7 +45,7 @@ function databaseConfig() {
 
 module.exports = {
   port: Number(readEnv("GYM_PORT", "PORT") || 5002),
-  jwtSecret: readEnv("JWT_SECRET") || "Q9xV7mK2#Lr8Pz4@Nc5Tj1Ws6Yh3Fd!Ua0Bg7Ee9Xi2Rp8Mv",
+  jwtSecret: readEnv("JWT_SECRET") || "Q9xV7mK2#r8Pz4@Nc5Tj1Ws6Yh3Fd!Ua0Bg7Ee9Xi2Rp8Mv",
   corsOrigin: readEnv("CORS_ORIGIN") || "http://localhost:5173",
   dbSchema: readSchema(readEnv("GYM_DB_SCHEMA", "DATABASE_SCHEMA"), "gym"),
   defaultTenantCode: readEnv("GYM_DEFAULT_TENANT_CODE", "DEFAULT_TENANT_CODE") || "ENT001",
