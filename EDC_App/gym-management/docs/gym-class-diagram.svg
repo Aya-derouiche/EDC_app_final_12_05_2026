@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2040" height="1540" viewBox="0 0 2040 1540">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#475569" />
+    </marker>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#eef2ff" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="2040" height="1540" fill="url(#bg)" />
+  
+  <g>
+    <rect x="40" y="18" width="1960" height="46" rx="12" fill="#0f172a" opacity="0.95" />
+    <text x="60" y="48" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#ffffff">Gym Management - UML Class Diagram</text>
+    <text x="1660" y="48" font-family="Arial, Helvetica, sans-serif" font-size="12.5" fill="#cbd5e1">Core entities extracted from schema and routes</text>
+  </g>
+  
+    <g>
+      <path d="M 340 200 L 360 200" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="348" y="200" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="354" y="194" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 830 310 L 830 440 L 1470 440" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="834" y="371" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1464" y="434" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 990 310 L 990 440 L 1790 440" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="994" y="371" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1784" y="434" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 190 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="198" y="550" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="184" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 350 310 L 350 790 L 510 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="354" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="504" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 670 310 L 670 790 L 1150 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="674" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1144" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 830 310 L 830 790 L 1470 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="834" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1464" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 990 310 L 990 790 L 1790 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="994" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1784" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 190 310 L 990 310 L 990 1140 L 1790 1140" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="994" y="721" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1784" y="1134" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 660 200 L 680 200" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="668" y="200" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="674" y="194" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 510 310 L 350 310 L 350 790 L 190 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="354" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="184" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 510 310 L 510 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="518" y="550" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="504" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 510 310 L 830 310 L 830 790 L 1150 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="834" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1144" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 510 310 L 510 1140" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="518" y="725" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="504" y="1134" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 980 200 L 1000 200" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="988" y="200" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="994" y="194" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+    </g>
+
+    <g>
+      <path d="M 830 310 L 510 310 L 510 440 L 190 440" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="514" y="371" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="184" y="434" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 980 200 L 1150 200 L 1150 200 L 1320 200" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="1154" y="196" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1314" y="194" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..1</text>
+    </g>
+
+    <g>
+      <path d="M 830 310 L 670 310 L 670 790 L 510 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="674" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="504" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 830 310 L 1310 310 L 1310 790 L 1790 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="1314" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1784" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 1790 310 L 1470 310 L 1470 440 L 1150 440" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="1474" y="371" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1144" y="434" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1..*</text>
+    </g>
+
+    <g>
+      <path d="M 1790 310 L 1310 310 L 1310 440 L 830 440" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="1314" y="371" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="824" y="434" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 340 550 L 360 550" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="348" y="550" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="354" y="544" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 340 550 L 510 550 L 510 550 L 680 550" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="514" y="546" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="674" y="544" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 1620 550 L 1640 550" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="1628" y="550" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1634" y="544" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 1790 660 L 990 660 L 990 790 L 190 790" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="994" y="721" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="184" y="784" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 340 1250 L 360 1250" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="348" y="1250" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="354" y="1244" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 340 1250 L 670 1250 L 670 1250 L 1000 1250" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="674" y="1246" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="994" y="1244" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 660 1250 L 680 1250" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="668" y="1250" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="674" y="1244" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+
+    <g>
+      <path d="M 660 1250 L 990 1250 L 990 1250 L 1320 1250" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)" />
+      <text x="994" y="1246" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">1</text>
+      <text x="1314" y="1244" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10.5" fill="#0f172a">0..*</text>
+    </g>
+  
+    <g>
+      <rect x="40" y="90" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="40" y="90" width="300" height="34" rx="14" fill="#dbeafe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="190" y="112" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymBranch</text>
+      <text x="54" y="144" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="54" dy="0">id: BIGSERIAL PK</tspan><tspan x="54" dy="15">code_entreprise</tspan><tspan x="54" dy="15">branch_code</tspan><tspan x="54" dy="15">branch_name</tspan><tspan x="54" dy="15">city</tspan><tspan x="54" dy="15">hotel_spa_integrated</tspan></text>
+    </g>
+
+    <g>
+      <rect x="360" y="90" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="360" y="90" width="300" height="34" rx="14" fill="#dcfce7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="510" y="112" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymMember</text>
+      <text x="374" y="144" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="374" dy="0">id: BIGSERIAL PK</tspan><tspan x="374" dy="15">code_entreprise</tspan><tspan x="374" dy="15">branch_id FK</tspan><tspan x="374" dy="15">member_code UQ</tspan><tspan x="374" dy="15">full_name</tspan><tspan x="374" dy="15">employee_id / cin</tspan><tspan x="374" dy="15">phone / bank_account</tspan><tspan x="374" dy="15">status</tspan></text>
+    </g>
+
+    <g>
+      <rect x="680" y="90" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="680" y="90" width="300" height="34" rx="14" fill="#fef3c7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="830" y="112" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymSubscription</text>
+      <text x="694" y="144" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="694" dy="0">id: BIGSERIAL PK</tspan><tspan x="694" dy="15">code_entreprise</tspan><tspan x="694" dy="15">branch_id FK</tspan><tspan x="694" dy="15">member_id FK</tspan><tspan x="694" dy="15">plan_name</tspan><tspan x="694" dy="15">amount</tspan><tspan x="694" dy="15">payment_method</tspan><tspan x="694" dy="15">workflow_status</tspan><tspan x="694" dy="15">status</tspan><tspan x="694" dy="15">start_date / end_date</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1000" y="90" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1000" y="90" width="300" height="34" rx="14" fill="#ede9fe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1150" y="112" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymContract</text>
+      <text x="1014" y="144" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1014" dy="0">id: BIGSERIAL PK</tspan><tspan x="1014" dy="15">subscription_id FK</tspan><tspan x="1014" dy="15">tenant_code</tspan><tspan x="1014" dy="15">contract_number</tspan><tspan x="1014" dy="15">authorization_reference</tspan><tspan x="1014" dy="15">authorization_pdf_path</tspan><tspan x="1014" dy="15">validation_status</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1320" y="90" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1320" y="90" width="300" height="34" rx="14" fill="#fce7f3" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1470" y="112" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">HQValidationQueue</text>
+      <text x="1334" y="144" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1334" dy="0">id: BIGSERIAL PK</tspan><tspan x="1334" dy="15">tenant_code</tspan><tspan x="1334" dy="15">subscription_id FK</tspan><tspan x="1334" dy="15">status</tspan><tspan x="1334" dy="15">reviewer_id</tspan><tspan x="1334" dy="15">reviewed_at</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1640" y="90" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1640" y="90" width="300" height="34" rx="14" fill="#ffe4e6" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1790" y="112" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymBatchJob</text>
+      <text x="1654" y="144" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1654" dy="0">id: BIGSERIAL PK</tspan><tspan x="1654" dy="15">code_entreprise</tspan><tspan x="1654" dy="15">month_ref</tspan><tspan x="1654" dy="15">status</tspan><tspan x="1654" dy="15">created_by</tspan><tspan x="1654" dy="15">processed_by</tspan><tspan x="1654" dy="15">processed_at</tspan></text>
+    </g>
+
+    <g>
+      <rect x="40" y="440" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="40" y="440" width="300" height="34" rx="14" fill="#dbeafe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="190" y="462" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymPayment</text>
+      <text x="54" y="494" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="54" dy="0">id: BIGSERIAL PK</tspan><tspan x="54" dy="15">subscription_id FK</tspan><tspan x="54" dy="15">month_ref</tspan><tspan x="54" dy="15">due_date</tspan><tspan x="54" dy="15">amount</tspan><tspan x="54" dy="15">attempt_count</tspan><tspan x="54" dy="15">status</tspan><tspan x="54" dy="15">paid_at</tspan></text>
+    </g>
+
+    <g>
+      <rect x="360" y="440" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="360" y="440" width="300" height="34" rx="14" fill="#dcfce7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="510" y="462" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">PaymentAttempt</text>
+      <text x="374" y="494" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="374" dy="0">id: BIGSERIAL PK</tspan><tspan x="374" dy="15">payment_id FK</tspan><tspan x="374" dy="15">attempt_no</tspan><tspan x="374" dy="15">result_status</tspan><tspan x="374" dy="15">failure_reason</tspan><tspan x="374" dy="15">attempted_at</tspan></text>
+    </g>
+
+    <g>
+      <rect x="680" y="440" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="680" y="440" width="300" height="34" rx="14" fill="#fef3c7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="830" y="462" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymBankReturn</text>
+      <text x="694" y="494" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="694" dy="0">id: BIGSERIAL PK</tspan><tspan x="694" dy="15">code_entreprise</tspan><tspan x="694" dy="15">payment_id FK</tspan><tspan x="694" dy="15">batch_job_id FK</tspan><tspan x="694" dy="15">bank_name</tspan><tspan x="694" dy="15">result_status</tspan><tspan x="694" dy="15">failure_reason</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1000" y="440" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1000" y="440" width="300" height="34" rx="14" fill="#ede9fe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1150" y="462" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">SalaryDeductionExport</text>
+      <text x="1014" y="494" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1014" dy="0">id: BIGSERIAL PK</tspan><tspan x="1014" dy="15">batch_job_id FK</tspan><tspan x="1014" dy="15">file_name</tspan><tspan x="1014" dy="15">xml_content</tspan><tspan x="1014" dy="15">minio_bucket</tspan><tspan x="1014" dy="15">minio_object_key</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1320" y="440" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1320" y="440" width="300" height="34" rx="14" fill="#fce7f3" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1470" y="462" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymCoach</text>
+      <text x="1334" y="494" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1334" dy="0">id: BIGSERIAL PK</tspan><tspan x="1334" dy="15">code_entreprise</tspan><tspan x="1334" dy="15">branch_id FK</tspan><tspan x="1334" dy="15">full_name</tspan><tspan x="1334" dy="15">specialty</tspan><tspan x="1334" dy="15">phone / email</tspan><tspan x="1334" dy="15">status</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1640" y="440" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1640" y="440" width="300" height="34" rx="14" fill="#ffe4e6" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1790" y="462" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymClass</text>
+      <text x="1654" y="494" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1654" dy="0">id: BIGSERIAL PK</tspan><tspan x="1654" dy="15">code_entreprise</tspan><tspan x="1654" dy="15">branch_id FK</tspan><tspan x="1654" dy="15">coach_id FK</tspan><tspan x="1654" dy="15">class_name</tspan><tspan x="1654" dy="15">class_type</tspan><tspan x="1654" dy="15">capacity</tspan><tspan x="1654" dy="15">starts_at / ends_at</tspan><tspan x="1654" dy="15">status</tspan></text>
+    </g>
+
+    <g>
+      <rect x="40" y="790" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="40" y="790" width="300" height="34" rx="14" fill="#dbeafe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="190" y="812" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymAttendance</text>
+      <text x="54" y="844" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="54" dy="0">id: BIGSERIAL PK</tspan><tspan x="54" dy="15">code_entreprise</tspan><tspan x="54" dy="15">member_id FK</tspan><tspan x="54" dy="15">class_id FK</tspan><tspan x="54" dy="15">branch_id FK</tspan><tspan x="54" dy="15">checkin_type</tspan><tspan x="54" dy="15">checked_in_at</tspan><tspan x="54" dy="15">created_by</tspan></text>
+    </g>
+
+    <g>
+      <rect x="360" y="790" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="360" y="790" width="300" height="34" rx="14" fill="#dcfce7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="510" y="812" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymCashTransaction</text>
+      <text x="374" y="844" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="374" dy="0">id: BIGSERIAL PK</tspan><tspan x="374" dy="15">code_entreprise</tspan><tspan x="374" dy="15">branch_id FK</tspan><tspan x="374" dy="15">member_id FK</tspan><tspan x="374" dy="15">subscription_id FK</tspan><tspan x="374" dy="15">amount</tspan><tspan x="374" dy="15">direction</tspan><tspan x="374" dy="15">payment_method</tspan><tspan x="374" dy="15">label</tspan><tspan x="374" dy="15">reference</tspan></text>
+    </g>
+
+    <g>
+      <rect x="680" y="790" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="680" y="790" width="300" height="34" rx="14" fill="#fef3c7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="830" y="812" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymSettings</text>
+      <text x="694" y="844" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="694" dy="0">id: BIGSERIAL PK</tspan><tspan x="694" dy="15">code_entreprise UQ</tspan><tspan x="694" dy="15">currency</tspan><tspan x="694" dy="15">default_due_day</tspan><tspan x="694" dy="15">occupancy_limit</tspan><tspan x="694" dy="15">renewal_warning_days</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1000" y="790" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1000" y="790" width="300" height="34" rx="14" fill="#ede9fe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1150" y="812" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymAccessEvent</text>
+      <text x="1014" y="844" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1014" dy="0">id: BIGSERIAL PK</tspan><tspan x="1014" dy="15">code_entreprise</tspan><tspan x="1014" dy="15">member_id FK</tspan><tspan x="1014" dy="15">branch_id FK</tspan><tspan x="1014" dy="15">event_type</tspan><tspan x="1014" dy="15">access_status</tspan><tspan x="1014" dy="15">reason</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1320" y="790" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1320" y="790" width="300" height="34" rx="14" fill="#fce7f3" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1470" y="812" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymNotification</text>
+      <text x="1334" y="844" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1334" dy="0">id: BIGSERIAL PK</tspan><tspan x="1334" dy="15">tenant_code</tspan><tspan x="1334" dy="15">branch_id FK</tspan><tspan x="1334" dy="15">type</tspan><tspan x="1334" dy="15">title</tspan><tspan x="1334" dy="15">message</tspan><tspan x="1334" dy="15">severity</tspan><tspan x="1334" dy="15">status</tspan><tspan x="1334" dy="15">entity_type / entity_id</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1640" y="790" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1640" y="790" width="300" height="34" rx="14" fill="#ffe4e6" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1790" y="812" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymFile</text>
+      <text x="1654" y="844" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1654" dy="0">id: BIGSERIAL PK</tspan><tspan x="1654" dy="15">tenant_code</tspan><tspan x="1654" dy="15">branch_id FK</tspan><tspan x="1654" dy="15">entity_type</tspan><tspan x="1654" dy="15">entity_id</tspan><tspan x="1654" dy="15">file_category</tspan><tspan x="1654" dy="15">original_filename</tspan><tspan x="1654" dy="15">minio_object_key</tspan></text>
+    </g>
+
+    <g>
+      <rect x="40" y="1140" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="40" y="1140" width="300" height="34" rx="14" fill="#dbeafe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="190" y="1162" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">ContractTemplate</text>
+      <text x="54" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="54" dy="0">id: BIGSERIAL PK</tspan><tspan x="54" dy="15">tenant_code</tspan><tspan x="54" dy="15">contract_type</tspan><tspan x="54" dy="15">language</tspan><tspan x="54" dy="15">name</tspan><tspan x="54" dy="15">mandatory_fields</tspan><tspan x="54" dy="15">is_active</tspan></text>
+    </g>
+
+    <g>
+      <rect x="360" y="1140" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="360" y="1140" width="300" height="34" rx="14" fill="#dcfce7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="510" y="1162" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">Contract</text>
+      <text x="374" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="374" dy="0">id: BIGSERIAL PK</tspan><tspan x="374" dy="15">tenant_code</tspan><tspan x="374" dy="15">contract_number UQ</tspan><tspan x="374" dy="15">contract_type</tspan><tspan x="374" dy="15">status</tspan><tspan x="374" dy="15">member_id FK</tspan><tspan x="374" dy="15">subscription_id FK</tspan><tspan x="374" dy="15">branch_id FK</tspan><tspan x="374" dy="15">template_id FK</tspan><tspan x="374" dy="15">title</tspan></text>
+    </g>
+
+    <g>
+      <rect x="680" y="1140" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="680" y="1140" width="300" height="34" rx="14" fill="#fef3c7" stroke="#1f2937" stroke-width="1.4" />
+      <text x="830" y="1162" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">ContractVersion</text>
+      <text x="694" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="694" dy="0">id: BIGSERIAL PK</tspan><tspan x="694" dy="15">contract_id FK</tspan><tspan x="694" dy="15">version_no</tspan><tspan x="694" dy="15">status</tspan><tspan x="694" dy="15">content_html</tspan><tspan x="694" dy="15">created_by</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1000" y="1140" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1000" y="1140" width="300" height="34" rx="14" fill="#ede9fe" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1150" y="1162" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">ContractClause</text>
+      <text x="1014" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1014" dy="0">id: BIGSERIAL PK</tspan><tspan x="1014" dy="15">tenant_code</tspan><tspan x="1014" dy="15">contract_type</tspan><tspan x="1014" dy="15">language</tspan><tspan x="1014" dy="15">clause_key</tspan><tspan x="1014" dy="15">title</tspan><tspan x="1014" dy="15">body</tspan><tspan x="1014" dy="15">is_mandatory</tspan><tspan x="1014" dy="15">sort_order</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1320" y="1140" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1320" y="1140" width="300" height="34" rx="14" fill="#fce7f3" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1470" y="1162" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">AiGenerationLog</text>
+      <text x="1334" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1334" dy="0">id: BIGSERIAL PK</tspan><tspan x="1334" dy="15">tenant_code</tspan><tspan x="1334" dy="15">contract_id FK</tspan><tspan x="1334" dy="15">provider</tspan><tspan x="1334" dy="15">model</tspan><tspan x="1334" dy="15">status</tspan><tspan x="1334" dy="15">error_message</tspan><tspan x="1334" dy="15">tokens_used</tspan></text>
+    </g>
+
+    <g>
+      <rect x="1640" y="1140" width="300" height="220" rx="14" fill="#fff" stroke="#1f2937" stroke-width="1.4" />
+      <rect x="1640" y="1140" width="300" height="34" rx="14" fill="#ffe4e6" stroke="#1f2937" stroke-width="1.4" />
+      <text x="1790" y="1162" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#111827">GymGenerationLog</text>
+      <text x="1654" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="11.5" fill="#374151"><tspan x="1654" dy="0">id: BIGSERIAL PK</tspan><tspan x="1654" dy="15">tenant_code</tspan><tspan x="1654" dy="15">branch_id FK</tspan><tspan x="1654" dy="15">operation_type</tspan><tspan x="1654" dy="15">entity_type</tspan><tspan x="1654" dy="15">entity_id</tspan><tspan x="1654" dy="15">file_name</tspan><tspan x="1654" dy="15">status</tspan><tspan x="1654" dy="15">generated_by</tspan></text>
+    </g>
+  
+  <g>
+    <text x="40" y="1490" font-family="Arial, Helvetica, sans-serif" font-size="12.5" fill="#334155">PK = primary key, FK = foreign key, UQ = unique constraint. All tenant-scoped entities also carry code_entreprise or tenant_code.</text>
+  </g>
+</svg>

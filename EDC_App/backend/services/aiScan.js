@@ -1,259 +1,158 @@
-// server/services/aiScan.js
-// Groq API — GRATUIT — https://console.groq.com
 require("dotenv").config();
 const axios = require("axios");
+const zlib = require("zlib");
 
-const GROQ_API_URL = process.env.GROQ_API_URL || process.env.GYM_GROQ_API_URL || "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_API_URL =
+  process.env.GROQ_API_URL ||
+  process.env.GYM_GROQ_API_URL ||
+  "https://api.groq.com/openai/v1/chat/completions";
 
 const GROQ_VISION_MODELS = [
   "meta-llama/llama-4-scout-17b-16e-instruct",
   "meta-llama/llama-4-maverick-17b-128e-instruct",
 ];
 
-// ── Fetch file from MinIO URL and convert to base64 ─────────────────────────
 async function fetchAsBase64(url) {
   const response = await axios.get(url, {
     responseType: "arraybuffer",
     timeout: 30000,
   });
   return {
-    base64:   Buffer.from(response.data).toString("base64"),
+    base64: Buffer.from(response.data).toString("base64"),
+    buffer: Buffer.from(response.data),
     mimeType: response.headers["content-type"] || "application/octet-stream",
   };
 }
 
-// ── System prompt ────────────────────────────────────────────────────────────
 function buildSystemPrompt() {
-  return `Tu es un système OCR expert en comptabilité tunisienne. Ton rôle est d'extraire EXACTEMENT les données visibles dans le document.
+  return `Tu es un systeme OCR expert en comptabilite tunisienne. Ton role est d'extraire exactement les donnees visibles dans le document.
 
-RÈGLES ABSOLUES — NE JAMAIS VIOLER :
-1. LIS chaque caractère EXACTEMENT tel qu'il apparaît. Ne devine pas, ne corrige pas.
-2. NUMÉROS DE DOCUMENT : Copie caractère par caractère. "FR-001" reste "FR-001", jamais "PR-001".
-3. DATES : Lis le jour, le mois, l'année exactement. Format YYYY-MM-DD.
-   - "29/01/2019" → "2019-01-29"
-   - "28/11/2019" → "2019-11-28"
-   Lis ATTENTIVEMENT le mois (01=Jan, 02=Fév, ..., 11=Nov, 12=Déc).
-4. MONTANTS : Copie le nombre exact affiché.
-   - "TVA 19%" sur "1000.000" → tva = 190.000 (le MONTANT en TND, PAS le taux %)
-   - "Total HT 1000.000" → montant_ht = 1000.000
-   - "TOTAL 1190.600" → montant_total = 1190.600
-   Ne mets JAMAIS un taux (0.19, 19) à la place d'un montant (190.000).
-5. MATRICULE FISCAL tunisien : format "1234567A/A/M/000" — 7 chiffres/lettre/lettre/lettre/000
-6. NOMS : Copie exactement. Vérifie chaque lettre.
-7. confidence_score : entre 0 et 1. Mets 0.9+ seulement si tu es certain à 90%+.
-8. Réponds UNIQUEMENT avec le JSON. Zéro texte avant ou après. Zéro backtick markdown.`;
+REGLES ABSOLUES:
+1. Lis chaque caractere exactement tel qu'il apparait.
+2. Ne devine pas, ne corrige pas.
+3. Dates au format YYYY-MM-DD.
+4. Les montants doivent etre des montants, jamais des pourcentages.
+5. Reponds uniquement avec du JSON valide.`;
 }
 
-// ── User prompts per document type ───────────────────────────────────────────
 function buildUserPrompt(docType) {
   const schemas = {
-    facture: `Extrais TOUTES les données de cette facture tunisienne. Sois ULTRA PRÉCIS sur chaque valeur.
-
-Vérifie particulièrement :
-- Le numéro de facture — copie EXACTEMENT
-- La date (jour/mois/année) — convertis en YYYY-MM-DD
-- Montant HT = total avant taxes
-- TVA = le MONTANT en TND (ex: 190.000), PAS le taux (pas 19 ou 0.19)
-- FODEC = montant FODEC si présent (1% sur certains produits), sinon 0
-- Timbre = 0.600 TND si présent, sinon 0
-- Montant total = montant final à payer (HT + TVA + FODEC + Timbre)
-- Matricule Fiscal (MF) format tunisien : XXXXXXX/A/A/X/000
-
-JSON à retourner:
+    facture: `Extrais les donnees de cette facture.
+JSON attendu:
 {
   "type_document": "facture",
-  "num_facture": "COPIE EXACTE DU NUMÉRO",
-  "date_facture": "YYYY-MM-DD",
-  "fournisseur": {
-    "nom": "nom exact du fournisseur/vendeur",
-    "mf_cin": "matricule fiscal ou CIN",
-    "adresse": "adresse complète",
-    "tel": null
-  },
-  "client": {
-    "nom": "nom exact du client",
-    "mf_cin": null
-  },
-  "lignes": [
-    {
-      "description": "désignation exacte",
-      "quantite": 0,
-      "prix_unitaire": 0.000,
-      "montant_ht": 0.000
-    }
-  ],
-  "montant_ht": 0.000,
-  "fodec": 0.000,
-  "tva": 0.000,
-  "timbre": 0.000,
-  "remise": 0.000,
-  "montant_total": 0.000,
+  "num_facture": "",
+  "date_facture": "",
+  "fournisseur": { "nom": "", "mf_cin": "", "adresse": "", "tel": null },
+  "client": { "nom": "", "mf_cin": null },
+  "lignes": [],
+  "montant_ht": 0,
+  "fodec": 0,
+  "tva": 0,
+  "timbre": 0,
+  "remise": 0,
+  "montant_total": 0,
   "mode_paiement": null,
-  "echeance": "YYYY-MM-DD ou null",
+  "echeance": null,
   "observations": null,
-  "confidence_score": 0.0
+  "confidence_score": 0
 }`,
-
-    achat: `Extrais toutes les données de ce document d'achat. Sois ULTRA PRÉCIS.
-TVA = montant en TND (pas le taux %). FODEC = montant si présent.
-
-JSON:
+    achat: `Extrais les donnees de ce document d'achat.
+JSON attendu:
 {
   "type_document": "achat",
-  "type_piece": "type exact (Facture, Avoir, Bon de commande, etc.)",
-  "num_piece": "numéro exact",
-  "date_piece": "YYYY-MM-DD",
+  "type_piece": "",
+  "num_piece": "",
+  "date_piece": "",
   "fournisseur": { "nom": null, "mf_cin": null, "adresse": null },
-  "montant_ht": 0.000,
-  "fodec": 0.000,
-  "tva": 0.000,
-  "timbre": 0.000,
-  "autre_montant": 0.000,
-  "montant_total": 0.000,
+  "montant_ht": 0,
+  "fodec": 0,
+  "tva": 0,
+  "timbre": 0,
+  "autre_montant": 0,
+  "montant_total": 0,
   "observations": null,
-  "confidence_score": 0.0
+  "confidence_score": 0
 }`,
-
-    livraison: `Extrais toutes les données de ce bon de livraison. Sois ULTRA PRÉCIS sur les numéros et dates.
-
-JSON:
+    livraison: `Extrais les donnees de ce bon de livraison.
+JSON attendu:
 {
   "type_document": "livraison",
-  "num_bl": "numéro exact du BL",
-  "date_bl": "YYYY-MM-DD",
+  "num_bl": "",
+  "date_bl": "",
   "fournisseur": { "nom": null, "mf_cin": null },
   "reference_commande": null,
-  "lignes": [{ "description": null, "quantite": 0, "unite": null }],
-  "montant_ht": 0.000,
-  "tva": 0.000,
-  "montant_total": 0.000,
+  "lignes": [],
+  "montant_ht": 0,
+  "tva": 0,
+  "montant_total": 0,
   "observations": null,
-  "confidence_score": 0.0
+  "confidence_score": 0
 }`,
-
-    commande: `Extrais toutes les données de cette commande. Sois ULTRA PRÉCIS.
-
-JSON:
+    commande: `Extrais les donnees de cette commande.
+JSON attendu:
 {
   "type_document": "commande",
-  "num_commande": "numéro exact",
-  "date_commande": "YYYY-MM-DD",
+  "num_commande": "",
+  "date_commande": "",
   "fournisseur": { "nom": null },
-  "lignes": [{ "description": null, "quantite": 0, "prix_unitaire": 0.000, "montant_ht": 0.000 }],
-  "montant_total": 0.000,
-  "date_livraison_prevue": "YYYY-MM-DD ou null",
+  "lignes": [],
+  "montant_total": 0,
+  "date_livraison_prevue": null,
   "observations": null,
-  "confidence_score": 0.0
+  "confidence_score": 0
 }`,
-
-    recu: `Extrais toutes les données de ce reçu/quittance. Sois ULTRA PRÉCIS.
-
-JSON:
+    recu: `Extrais les donnees de ce recu.
+JSON attendu:
 {
   "type_document": "recu",
   "num_recu": null,
-  "date": "YYYY-MM-DD",
+  "date": "",
   "emetteur": null,
   "beneficiaire": null,
-  "montant": 0.000,
+  "montant": 0,
   "motif": null,
   "mode_paiement": null,
   "observations": null,
-  "confidence_score": 0.0
+  "confidence_score": 0
 }`,
-
-    autres: `Extrais toutes les informations disponibles dans ce document.
-
-JSON:
+    autres: `Extrais les informations de ce document.
+JSON attendu:
 {
   "type_document": "autres",
   "titre": null,
-  "date": "YYYY-MM-DD ou null",
+  "date": null,
   "emetteur": null,
   "destinataire": null,
   "montants": [],
   "informations_cles": [],
   "observations": null,
-  "confidence_score": 0.0
+  "confidence_score": 0
 }`,
   };
 
-  return schemas[docType] || schemas["facture"];
+  return schemas[docType] || schemas.facture;
 }
 
-// ── Call Groq API ─────────────────────────────────────────────────────────────
-async function callGroq(apiKey, model, base64, mimeType, docType) {
-  const isImage = mimeType.startsWith("image/");
-
-  const userContent = isImage
-    ? [
-        {
-          type: "image_url",
-          image_url: {
-            url:    `data:${mimeType};base64,${base64}`,
-            detail: "high",
-          },
-        },
-        { type: "text", text: buildUserPrompt(docType) },
-      ]
-    : [
-        {
-          type: "text",
-          text: buildUserPrompt(docType) +
-            "\n\n(Document PDF — extrais ce que tu peux depuis le contenu textuel. confidence_score max 0.65)",
-        },
-      ];
-
-  const response = await axios.post(
-    GROQ_API_URL,
-    {
-      model,
-      messages: [
-        { role: "system", content: buildSystemPrompt() },
-        { role: "user",   content: userContent },
-      ],
-      temperature:  0.0,
-      max_tokens:   3000,
-    },
-    {
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type":  "application/json",
-      },
-      timeout: 90000,
-    }
-  );
-
-  return response;
-}
-
-// ── Parse AI response safely ──────────────────────────────────────────────────
 function parseAIResponse(rawText) {
   if (!rawText || !rawText.trim()) {
-    throw new Error("Réponse vide de l'IA");
+    throw new Error("Reponse vide de l'IA");
   }
 
-  // Remove markdown code blocks if present
-  let cleaned = rawText
+  const cleaned = rawText
     .replace(/```json\s*/gi, "")
     .replace(/```\s*/g, "")
     .trim();
 
-  // Try direct parse
   try {
     return JSON.parse(cleaned);
   } catch {
-    // Try to extract JSON object from text
     const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      return JSON.parse(match[0]);
-    }
-    throw new Error(`JSON invalide reçu: ${cleaned.slice(0, 200)}`);
+    if (match) return JSON.parse(match[0]);
+    throw new Error(`JSON invalide recu: ${cleaned.slice(0, 200)}`);
   }
 }
 
-// ── Main scan function ────────────────────────────────────────────────────────
-// Can accept either a URL (string) or a Buffer directly
 function emptyExtraction(docType) {
   const type = String(docType || "facture").toLowerCase();
   const common = { confidence_score: 0 };
@@ -306,6 +205,21 @@ function emptyExtraction(docType) {
     };
   }
 
+  if (type === "recu") {
+    return {
+      ...common,
+      type_document: "recu",
+      num_recu: null,
+      date: "",
+      emetteur: null,
+      beneficiaire: null,
+      montant: 0,
+      motif: null,
+      mode_paiement: null,
+      observations: null,
+    };
+  }
+
   return {
     ...common,
     type_document: "facture",
@@ -326,117 +240,320 @@ function emptyExtraction(docType) {
   };
 }
 
+function unescapePdfString(value) {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (ch !== "\\") {
+      out += ch;
+      continue;
+    }
+
+    const next = value[i + 1];
+    if (next === undefined) break;
+    if (next === "n") { out += "\n"; i += 1; continue; }
+    if (next === "r") { out += "\r"; i += 1; continue; }
+    if (next === "t") { out += "\t"; i += 1; continue; }
+    if (next === "b") { out += "\b"; i += 1; continue; }
+    if (next === "f") { out += "\f"; i += 1; continue; }
+    if (next === "(" || next === ")" || next === "\\") { out += next; i += 1; continue; }
+    if (/\d/.test(next)) {
+      const octal = value.slice(i + 1, i + 4).match(/^[0-7]{1,3}/)?.[0];
+      if (octal) {
+        out += String.fromCharCode(parseInt(octal, 8));
+        i += octal.length;
+        continue;
+      }
+    }
+    if (next === "\n") { i += 1; continue; }
+    if (next === "\r") { i += value[i + 2] === "\n" ? 2 : 1; continue; }
+    out += next;
+    i += 1;
+  }
+  return out;
+}
+
+function extractPdfText(buffer) {
+  const latin1 = buffer.toString("latin1");
+  const out = [];
+  let cursor = 0;
+
+  while (cursor < buffer.length) {
+    const streamIndex = latin1.indexOf("stream", cursor);
+    if (streamIndex === -1) break;
+
+    const afterStream = latin1.indexOf("\n", streamIndex);
+    const start = afterStream === -1
+      ? -1
+      : (latin1[streamIndex + 6] === "\r" ? streamIndex + 7 : afterStream + 1);
+    const end = start === -1 ? -1 : latin1.indexOf("endstream", start);
+    if (start === -1 || end === -1) {
+      cursor = streamIndex + 6;
+      continue;
+    }
+
+    const context = latin1.slice(Math.max(0, streamIndex - 180), streamIndex + 40);
+    const rawStream = buffer.slice(start, end);
+
+    const candidates = [];
+    try {
+      if (context.includes("/FlateDecode")) {
+        candidates.push(zlib.inflateSync(rawStream).toString("latin1"));
+      }
+    } catch (_err) {}
+    candidates.push(rawStream.toString("latin1"));
+
+    for (const candidate of candidates) {
+      const literalMatches = candidate.match(/\((?:\\.|[^\\)])*\)\s*T[Jj]/g) || [];
+      for (const match of literalMatches) {
+        const literal = match.match(/\(((?:\\.|[^\\)])*)\)/)?.[1];
+        if (literal) out.push(unescapePdfString(literal));
+      }
+
+      const arrayMatches = candidate.match(/\[(?:[\s\S]*?)\]\s*TJ/g) || [];
+      for (const match of arrayMatches) {
+        const literals = [...match.matchAll(/\(((?:\\.|[^\\)])*)\)/g)];
+        for (const literalMatch of literals) {
+          out.push(unescapePdfString(literalMatch[1]));
+        }
+
+        const hexStrings = [...match.matchAll(/<([0-9A-Fa-f\s]+)>/g)];
+        for (const hexMatch of hexStrings) {
+          const raw = hexMatch[1].replace(/\s+/g, "");
+          if (raw.length >= 2 && raw.length % 2 === 0) {
+            try {
+              out.push(Buffer.from(raw, "hex").toString("latin1"));
+            } catch (_err) {}
+          }
+        }
+      }
+    }
+
+    cursor = end + 9;
+  }
+
+  const fallback = latin1
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const joined = out.join("\n").trim();
+  if (joined.length < 50 && fallback.length > 50) {
+    return fallback;
+  }
+
+  return joined;
+}
+
+async function callGroqImage(apiKey, model, base64, mimeType, docType) {
+  return axios.post(
+    GROQ_API_URL,
+    {
+      model,
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType};base64,${base64}`,
+                detail: "high",
+              },
+            },
+            { type: "text", text: buildUserPrompt(docType) },
+          ],
+        },
+      ],
+      temperature: 0.0,
+      max_tokens: 3000,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 90000,
+    }
+  );
+}
+
+async function callGroqText(apiKey, model, documentText, docType) {
+  return axios.post(
+    GROQ_API_URL,
+    {
+      model,
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        {
+          role: "user",
+          content:
+            `${buildUserPrompt(docType)}\n\n` +
+            `Le texte ci-dessous provient d'un PDF texte. Extrais uniquement les donnees visibles et renvoie du JSON valide.\n\n` +
+            `TEXTE OCR:\n${String(documentText || "").slice(0, 16000)}`,
+        },
+      ],
+      temperature: 0.0,
+      max_tokens: 3000,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 90000,
+    }
+  );
+}
+
 async function scanDocument(fileUrlOrBuffer, mimeType, docType = "facture") {
   try {
     const apiKey = process.env.GROQ_API_KEY || process.env.GYM_GROQ_API_KEY;
     if (!apiKey) {
-      throw new Error(
-        "GROQ_API_KEY manquante dans .env ! Obtenez votre clé gratuite sur https://console.groq.com"
-      );
+      throw new Error("GROQ_API_KEY manquante dans .env");
     }
 
-    // Excel/CSV: AI cannot process binary spreadsheets directly
+    const normalizedMime = String(mimeType || "").toLowerCase();
     if (
-      mimeType.includes("excel") ||
-      mimeType.includes("spreadsheetml") ||
-      mimeType === "text/csv"
+      normalizedMime.includes("excel") ||
+      normalizedMime.includes("spreadsheetml") ||
+      normalizedMime === "text/csv"
     ) {
       return {
         success: false,
-        error:   "Excel/CSV: remplissage manuel requis — l'IA ne peut pas lire les feuilles de calcul binaires.",
+        error:
+          "Excel/CSV: remplissage manuel requis - l'IA ne peut pas lire les feuilles de calcul binaires.",
         extractedData: emptyExtraction(docType),
         confidence_score: 0,
       };
     }
 
-    // Get file as base64
-    let base64, fileMime;
+    const isPdf = normalizedMime.includes("pdf");
+    const isImage = normalizedMime.startsWith("image/");
+
+    let buffer = null;
+    let base64 = "";
+    let fileMime = normalizedMime || "application/octet-stream";
+
     if (Buffer.isBuffer(fileUrlOrBuffer)) {
-      // Direct buffer (from multer memoryStorage)
-      base64   = fileUrlOrBuffer.toString("base64");
-      fileMime = mimeType;
+      buffer = fileUrlOrBuffer;
+      base64 = fileUrlOrBuffer.toString("base64");
     } else {
-      // URL — fetch from MinIO or any URL
       const fetched = await fetchAsBase64(fileUrlOrBuffer);
-      base64   = fetched.base64;
-      fileMime = fetched.mimeType;
+      buffer = fetched.buffer;
+      base64 = fetched.base64;
+      fileMime = String(fetched.mimeType || fileMime).toLowerCase();
     }
 
-    // Normalize image MIME type (Groq only accepts specific image types)
-    const allowedImages = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-    if (fileMime.startsWith("image/") && !allowedImages.includes(fileMime)) {
-      fileMime = "image/jpeg"; // fallback
-    }
-
-    if (!fileMime.startsWith("image/")) {
-      return {
-        success: false,
-        error: "OCR IA disponible pour les images JPG/PNG/WebP/GIF. Pour PDF/Excel/CSV, le fichier est importe et la saisie reste manuelle.",
-        extractedData: emptyExtraction(docType),
-        confidence_score: 0,
-      };
-    }
-
-    let lastError = "";
     const configuredModel = process.env.GROQ_MODEL || process.env.GYM_GROQ_MODEL;
     const models = configuredModel
       ? [configuredModel, ...GROQ_VISION_MODELS.filter((m) => m !== configuredModel)]
       : GROQ_VISION_MODELS;
 
-    // Try each model in order (fallback on quota/rate limit)
+    if (isPdf) {
+      const pdfText = buffer ? extractPdfText(buffer) : "";
+      if (!pdfText.trim()) {
+        return {
+          success: false,
+          error:
+            "PDF detecte, mais aucun texte exploitable n'a pu etre extrait. Si le document est un scan image, une conversion OCR serveur est necessaire.",
+          extractedData: emptyExtraction(docType),
+          confidence_score: 0,
+        };
+      }
+
+      let lastError = "";
+      for (const model of models) {
+        try {
+          console.log(`[AI Scan] Trying model on PDF text: ${model}`);
+          const response = await callGroqText(apiKey, model, pdfText, docType);
+          const rawText = response.data?.choices?.[0]?.message?.content || "";
+          if (!rawText.trim()) {
+            lastError = `Reponse vide du modele ${model}`;
+            continue;
+          }
+
+          const extractedData = parseAIResponse(rawText);
+          return {
+            success: true,
+            extractedData,
+            confidence_score: extractedData.confidence_score ?? 0.75,
+            model_used: model,
+            doc_type_detected: extractedData.type_document,
+            rawText: pdfText,
+          };
+        } catch (modelErr) {
+          const errMsg = modelErr.response?.data?.error?.message || modelErr.message;
+          lastError = errMsg;
+          const retryable =
+            errMsg.includes("quota") ||
+            errMsg.includes("429") ||
+            errMsg.includes("rate_limit") ||
+            errMsg.includes("overloaded");
+          if (!retryable) break;
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+
+      throw new Error(`Tous les modeles PDF ont echoue. Derniere erreur: ${lastError}`);
+    }
+
+    if (!isImage) {
+      return {
+        success: false,
+        error:
+          "OCR IA disponible pour les images JPG/PNG/WebP/GIF. Pour les PDF, un texte exploitable doit etre present ou une conversion OCR serveur est necessaire.",
+        extractedData: emptyExtraction(docType),
+        confidence_score: 0,
+      };
+    }
+
+    const allowedImages = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!allowedImages.includes(fileMime)) {
+      fileMime = "image/jpeg";
+    }
+
+    let lastError = "";
     for (const model of models) {
       try {
         console.log(`[AI Scan] Trying model: ${model}`);
-
-        const response = await callGroq(apiKey, model, base64, fileMime, docType);
-        const rawText  = response.data?.choices?.[0]?.message?.content || "";
-
+        const response = await callGroqImage(apiKey, model, base64, fileMime, docType);
+        const rawText = response.data?.choices?.[0]?.message?.content || "";
         if (!rawText.trim()) {
-          lastError = `Réponse vide du modèle ${model}`;
+          lastError = `Reponse vide du modele ${model}`;
           continue;
         }
 
         const extractedData = parseAIResponse(rawText);
-
-        console.log(`[AI Scan] ✅ Succès avec: ${model}`);
-        console.log(`[AI Scan] Type détecté: ${extractedData.type_document}, Confiance: ${extractedData.confidence_score}`);
-
         return {
-          success:          true,
+          success: true,
           extractedData,
           confidence_score: extractedData.confidence_score ?? 0,
-          model_used:       model,
+          model_used: model,
           doc_type_detected: extractedData.type_document,
         };
-
       } catch (modelErr) {
         const errMsg = modelErr.response?.data?.error?.message || modelErr.message;
-        console.warn(`[AI Scan] ❌ ${model} échoué: ${errMsg}`);
         lastError = errMsg;
-
-        // Only retry on rate limit / quota errors
-        const isRetryable =
+        const retryable =
           errMsg.includes("quota") ||
           errMsg.includes("429") ||
           errMsg.includes("rate_limit") ||
           errMsg.includes("overloaded");
-
-        if (!isRetryable) break;
-
-        // Wait before retrying
-        await new Promise(r => setTimeout(r, 2000));
+        if (!retryable) break;
+        await new Promise((r) => setTimeout(r, 2000));
       }
     }
 
-    throw new Error(`Tous les modèles ont échoué. Dernière erreur: ${lastError}`);
-
+    throw new Error(`Tous les modeles ont echoue. Derniere erreur: ${lastError}`);
   } catch (err) {
     const errorMsg = err.response?.data?.error?.message || err.message;
     console.error("[AI Scan] Erreur finale:", errorMsg);
     return {
-      success:          false,
-      error:            errorMsg,
-      extractedData:    emptyExtraction(docType),
+      success: false,
+      error: errorMsg,
+      extractedData: emptyExtraction(docType),
       confidence_score: 0,
     };
   }

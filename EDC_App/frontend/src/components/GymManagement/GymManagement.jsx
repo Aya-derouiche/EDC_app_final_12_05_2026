@@ -14,6 +14,9 @@ import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import PointOfSaleIcon from "@mui/icons-material/PointOfSale";
+import LogoutIcon from "@mui/icons-material/Logout";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ReplayIcon from "@mui/icons-material/Replay";
 import SecurityIcon from "@mui/icons-material/Security";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -204,6 +207,32 @@ function readCurrentRole() {
   return "";
 }
 
+function readCurrentScope() {
+  const scope = { role: "", branchId: "" };
+
+  try {
+    const rawUser = localStorage.getItem("user");
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      if (parsed?.role) scope.role = normalizeRole(parsed.role);
+      scope.branchId = String(parsed?.gym_branch_id || parsed?.branch_id || parsed?.branchId || parsed?.gymBranchId || scope.branchId || "");
+      return scope;
+    }
+  } catch (_e) {}
+
+  try {
+    const token = localStorage.getItem("token");
+    if (token) {
+      const payload = JSON.parse(atob(token.split(".")[1] || ""));
+      scope.role = normalizeRole(payload?.role);
+      scope.branchId = String(payload?.gym_branch_id || payload?.branch_id || payload?.branchId || payload?.gymBranchId || scope.branchId || "");
+      return scope;
+    }
+  } catch (_e) {}
+
+  return scope;
+}
+
 function roleAllowed(currentRole, allowedRoles) {
   if (!allowedRoles?.length) return true;
   return allowedRoles.includes(normalizeRole(currentRole));
@@ -359,11 +388,17 @@ const GymManagement = () => {
   const [error, setError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentRole] = useState(() => readCurrentRole());
+  const [currentScope] = useState(() => readCurrentScope());
+  const currentRole = currentScope.role;
   const [data, setData] = useState({ ...endpointFallbacks });
 
   const [selectedContract, setSelectedContract] = useState(null);
   const [contractEditorHtml, setContractEditorHtml] = useState("");
+  const [selectedBranch, setSelectedBranch] = useState(null);
+  const [selectedMember, setSelectedMember] = useState(null);
+  const [selectedSubscription, setSelectedSubscription] = useState(null);
+  const [selectedClassItem, setSelectedClassItem] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedCoach, setSelectedCoach] = useState(null);
   const [selectedGymFile, setSelectedGymFile] = useState(null);
 
@@ -386,9 +421,24 @@ const GymManagement = () => {
 
   const unreadCount = useMemo(() => data.notifications.filter((item) => item.status === "unread").length, [data.notifications]);
   const canScanNotifications = roleAllowed(currentRole, ["admin", "super_admin", "hq_admin", "gym_manager", "comptable"]);
-  const visibleModules = useMemo(() => modules.filter((mod) => roleAllowed(currentRole, mod.roles)), [currentRole]);
+  const hqAccessAllowed = useMemo(() => {
+    if (roleAllowed(currentRole, ["admin", "super_admin", "hq_admin"])) return true;
+    return normalizeRole(currentRole) === "gym_manager" && !String(currentScope.branchId || "").trim();
+  }, [currentRole, currentScope.branchId]);
+  const visibleModules = useMemo(
+    () => modules.filter((mod) => roleAllowed(currentRole, mod.roles) && (mod.id !== "hq" || hqAccessAllowed)),
+    [currentRole, hqAccessAllowed]
+  );
 
   const setForm = (name, patch) => setForms((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
+  const logout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("user");
+    localStorage.removeItem("active_module");
+    localStorage.removeItem("gym_branch_id");
+    window.location.href = "/";
+  };
 
   async function loadData() {
     try {
@@ -398,11 +448,16 @@ const GymManagement = () => {
         dashboard: "/dashboard", statistics: "/statistics", branches: "/branches",
         members: "/members", subscriptions: "/subscriptions",
         contracts: "/contract-ai/contracts", contractTemplates: "/contract-ai/templates",
-        hqValidations: "/hq/validations?status=pending", authorizations: "/authorizations",
-        payments: "/payments", bankReturns: "/bank-returns", bankExports: "/bank-exports",
+        authorizations: "/authorizations",
+        payments: "/payments",
         classes: "/classes", coaches: "/coaches", attendance: "/attendance", cash: "/cash",
         notifications: "/notifications?limit=50", settings: "/settings", accessEvents: "/access-events",
       };
+      if (hqAccessAllowed) {
+        endpoints.hqValidations = "/hq/validations?status=pending";
+        endpoints.bankReturns = "/bank-returns";
+        endpoints.bankExports = "/bank-exports";
+      }
       if (!roleAllowed(currentRole, ["admin", "super_admin", "hq_admin", "gym_manager"])) {
         delete endpoints.hqValidations;
       }
@@ -458,12 +513,94 @@ const GymManagement = () => {
     }
   };
 
-  const createBranch = (e) => { e.preventDefault(); runAction(() => gymApi.post("/branches", forms.branch)); };
-  const createMember = (e) => { e.preventDefault(); runAction(() => gymApi.post("/members", { ...forms.member, branch_id: forms.member.branch_id ? Number(forms.member.branch_id) : null })); };
+  const createBranch = (e) => {
+    e.preventDefault();
+    const payload = { ...forms.branch };
+    const action = selectedBranch?.id
+      ? gymApi.put(`/branches/${selectedBranch.id}`, payload)
+      : gymApi.post("/branches", payload);
+    runAction(async () => {
+      await action;
+      setSelectedBranch(null);
+      setForm("branch", { branch_code: "", branch_name: "", city: "", hotel_spa_integrated: false });
+    }, selectedBranch?.id ? "Salle mise à jour." : "Salle ajoutée.");
+  };
+
+  const editBranch = (branch) => {
+    setSelectedBranch(branch);
+    setForm("branch", {
+      branch_code: branch.branch_code || "",
+      branch_name: branch.branch_name || "",
+      city: branch.city || "",
+      hotel_spa_integrated: Boolean(branch.hotel_spa_integrated),
+    });
+  };
+
+  const cancelBranchEdit = () => {
+    setSelectedBranch(null);
+    setForm("branch", { branch_code: "", branch_name: "", city: "", hotel_spa_integrated: false });
+  };
+
+  const deleteBranch = (id) => runAction(() => gymApi.delete(`/branches/${id}`));
+
+  const createMember = (e) => {
+    e.preventDefault();
+    const payload = { ...forms.member, branch_id: forms.member.branch_id ? Number(forms.member.branch_id) : null };
+    const action = selectedMember?.id ? gymApi.put(`/members/${selectedMember.id}`, payload) : gymApi.post("/members", payload);
+    runAction(async () => {
+      await action;
+      setSelectedMember(null);
+      setForm("member", { branch_id: "", member_code: "", full_name: "", employee_id: "", cin: "", phone: "", email: "", bank_account: "", status: "active" });
+    }, selectedMember?.id ? "Membre mis à jour." : "Membre ajouté.");
+  };
+  const editMember = (member) => {
+    setSelectedMember(member);
+    setForm("member", {
+      branch_id: member.branch_id ? String(member.branch_id) : "",
+      member_code: member.member_code || "",
+      full_name: member.full_name || "",
+      employee_id: member.employee_id || "",
+      cin: member.cin || "",
+      phone: member.phone || "",
+      email: member.email || "",
+      bank_account: member.bank_account || "",
+      status: member.status || "active",
+    });
+  };
+  const cancelMemberEdit = () => {
+    setSelectedMember(null);
+    setForm("member", { branch_id: "", member_code: "", full_name: "", employee_id: "", cin: "", phone: "", email: "", bank_account: "", status: "active" });
+  };
+  const deleteMember = (id) => runAction(() => gymApi.delete(`/members/${id}`));
+
   const createSubscription = (e) => {
     e.preventDefault();
-    runAction(() => gymApi.post("/subscriptions", { ...forms.subscription, amount: Number(forms.subscription.amount), member_id: Number(forms.subscription.member_id), branch_id: forms.subscription.branch_id ? Number(forms.subscription.branch_id) : null, due_day: Number(forms.subscription.due_day || 5), end_date: forms.subscription.end_date || null }));
+    const payload = { ...forms.subscription, amount: Number(forms.subscription.amount), member_id: Number(forms.subscription.member_id), branch_id: forms.subscription.branch_id ? Number(forms.subscription.branch_id) : null, due_day: Number(forms.subscription.due_day || 5), end_date: forms.subscription.end_date || null };
+    const action = selectedSubscription?.id ? gymApi.patch(`/subscriptions/${selectedSubscription.id}`, payload) : gymApi.post("/subscriptions", payload);
+    runAction(async () => {
+      await action;
+      setSelectedSubscription(null);
+      setForm("subscription", { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" });
+    }, selectedSubscription?.id ? "Abonnement mis à jour." : "Abonnement créé.");
   };
+  const editSubscription = (subscription) => {
+    setSelectedSubscription(subscription);
+    setForm("subscription", {
+      branch_id: subscription.branch_id ? String(subscription.branch_id) : "",
+      member_id: subscription.member_id ? String(subscription.member_id) : "",
+      plan_name: subscription.plan_name || "Standard",
+      amount: subscription.amount ?? "",
+      payment_method: subscription.payment_method || "direct",
+      due_day: subscription.due_day || 5,
+      start_date: String(subscription.start_date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+      end_date: String(subscription.end_date || "").slice(0, 10),
+    });
+  };
+  const cancelSubscriptionEdit = () => {
+    setSelectedSubscription(null);
+    setForm("subscription", { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" });
+  };
+  const deleteSubscription = (id) => runAction(() => gymApi.delete(`/subscriptions/${id}`));
   const updateWorkflow = (id, workflow_status) => runAction(() => gymApi.patch(`/subscriptions/${id}/workflow`, { workflow_status }));
   const createCoach = (e) => {
     e.preventDefault();
@@ -476,7 +613,33 @@ const GymManagement = () => {
   };
   const editCoach = (coach) => { setSelectedCoach(coach); setForm("coach", { branch_id: coach.branch_id ? String(coach.branch_id) : "", full_name: coach.full_name || "", specialty: coach.specialty || "", phone: coach.phone || "", email: coach.email || "" }); };
   const cancelCoachEdit = () => { setSelectedCoach(null); setForm("coach", { branch_id: "", full_name: "", specialty: "", phone: "", email: "" }); };
-  const createClass = (e) => { e.preventDefault(); runAction(() => gymApi.post("/classes", { ...forms.classItem, coach_id: forms.classItem.coach_id ? Number(forms.classItem.coach_id) : null, branch_id: forms.classItem.branch_id ? Number(forms.classItem.branch_id) : null, capacity: Number(forms.classItem.capacity || 20) })); };
+  const deleteCoach = (id) => runAction(() => gymApi.delete(`/coaches/${id}`));
+  const createClass = (e) => {
+    e.preventDefault();
+    const payload = { ...forms.classItem, coach_id: forms.classItem.coach_id ? Number(forms.classItem.coach_id) : null, branch_id: forms.classItem.branch_id ? Number(forms.classItem.branch_id) : null, capacity: Number(forms.classItem.capacity || 20) };
+    const action = selectedClassItem?.id ? gymApi.put(`/classes/${selectedClassItem.id}`, payload) : gymApi.post("/classes", payload);
+    runAction(async () => {
+      await action;
+      setSelectedClassItem(null);
+      setForm("classItem", { class_name: "", class_type: "", coach_id: "", branch_id: "", capacity: 20, starts_at: new Date().toISOString().slice(0, 16) });
+    }, selectedClassItem?.id ? "Cours mis à jour." : "Cours planifié.");
+  };
+  const editClass = (item) => {
+    setSelectedClassItem(item);
+    setForm("classItem", {
+      class_name: item.class_name || "",
+      class_type: item.class_type || "",
+      coach_id: item.coach_id ? String(item.coach_id) : "",
+      branch_id: item.branch_id ? String(item.branch_id) : "",
+      capacity: item.capacity ?? 20,
+      starts_at: String(item.starts_at || new Date().toISOString().slice(0, 16)).slice(0, 16),
+    });
+  };
+  const cancelClassEdit = () => {
+    setSelectedClassItem(null);
+    setForm("classItem", { class_name: "", class_type: "", coach_id: "", branch_id: "", capacity: 20, starts_at: new Date().toISOString().slice(0, 16) });
+  };
+  const deleteClass = (id) => runAction(() => gymApi.delete(`/classes/${id}`));
   const checkIn = (e) => { e.preventDefault(); runAction(() => gymApi.post("/attendance/checkin", { ...forms.attendance, member_id: forms.attendance.member_id ? Number(forms.attendance.member_id) : null, class_id: forms.attendance.class_id ? Number(forms.attendance.class_id) : null, branch_id: forms.attendance.branch_id ? Number(forms.attendance.branch_id) : null })); };
   const createCash = (e) => { e.preventDefault(); runAction(() => gymApi.post("/cash", { ...forms.cash, amount: Number(forms.cash.amount), member_id: forms.cash.member_id ? Number(forms.cash.member_id) : null, branch_id: forms.cash.branch_id ? Number(forms.cash.branch_id) : null })); };
   const registerPaymentAttempt = (e) => { e.preventDefault(); runAction(() => gymApi.post(`/payments/${forms.paymentAttempt.payment_id}/attempt`, { outcome: forms.paymentAttempt.outcome, failure_reason: forms.paymentAttempt.failure_reason || null })); };
@@ -548,7 +711,30 @@ const GymManagement = () => {
       document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
     } catch (err) { setError(err?.response?.data?.error || "Export PDF impossible."); }
   };
-  const saveTemplate = (e) => { e.preventDefault(); runAction(() => gymApi.post("/contract-ai/templates", forms.template)); };
+  const saveTemplate = (e) => {
+    e.preventDefault();
+    const action = selectedTemplate?.id ? gymApi.put(`/contract-ai/templates/${selectedTemplate.id}`, forms.template) : gymApi.post("/contract-ai/templates", forms.template);
+    runAction(async () => {
+      await action;
+      setSelectedTemplate(null);
+      setForm("template", { contract_type: "gym_membership", language: "fr", name: "", description: "", content_skeleton: "" });
+    }, selectedTemplate?.id ? "Template mis à jour." : "Template créé.");
+  };
+  const editTemplate = (tpl) => {
+    setSelectedTemplate(tpl);
+    setForm("template", {
+      contract_type: tpl.contract_type || "gym_membership",
+      language: tpl.language || "fr",
+      name: tpl.name || "",
+      description: tpl.description || "",
+      content_skeleton: tpl.content_skeleton || "",
+    });
+  };
+  const cancelTemplateEdit = () => {
+    setSelectedTemplate(null);
+    setForm("template", { contract_type: "gym_membership", language: "fr", name: "", description: "", content_skeleton: "" });
+  };
+  const deleteTemplate = (id) => runAction(() => gymApi.delete(`/contract-ai/templates/${id}`));
   const saveSettings = (e) => { e.preventDefault(); runAction(() => gymApi.put("/settings", { ...forms.settings, default_due_day: Number(forms.settings.default_due_day), occupancy_limit: Number(forms.settings.occupancy_limit), renewal_warning_days: Number(forms.settings.renewal_warning_days) })); };
   const processMonth = () => { const month_ref = `${new Date().toISOString().slice(0, 7)}-01`; runAction(() => gymApi.post("/payments/process-month", { month_ref })); };
   const generateXml = () => { const month_ref = `${new Date().toISOString().slice(0, 7)}-01`; runAction(() => gymApi.post("/payments/batch/xml", { month_ref })); };
@@ -590,7 +776,7 @@ const GymManagement = () => {
   const renderBranches = () => (
     <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
       <form onSubmit={createBranch} style={cardStyle}>
-        <SectionTitle>Nouvelle salle</SectionTitle>
+        <SectionTitle>{selectedBranch ? "Modifier salle" : "Nouvelle salle"}</SectionTitle>
         <Field placeholder="Code salle" value={forms.branch.branch_code} onChange={(e) => setForm("branch", { branch_code: e.target.value })} required />
         <Field placeholder="Nom salle" value={forms.branch.branch_name} onChange={(e) => setForm("branch", { branch_name: e.target.value })} required />
         <Field placeholder="Ville" value={forms.branch.city} onChange={(e) => setForm("branch", { city: e.target.value })} />
@@ -598,11 +784,25 @@ const GymManagement = () => {
           <input type="checkbox" checked={forms.branch.hotel_spa_integrated} onChange={(e) => setForm("branch", { hotel_spa_integrated: e.target.checked })} />
           Hotel / spa intégré
         </label>
-        <Btn type="submit">Ajouter salle</Btn>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn type="submit">{selectedBranch ? "Mettre à jour" : "Ajouter salle"}</Btn>
+          {selectedBranch ? <Btn type="button" variant="dark" onClick={cancelBranchEdit}>Annuler</Btn> : null}
+        </div>
       </form>
       <div style={cardStyle}>
         <SectionTitle>Gestion des salles</SectionTitle>
-        <DataTable columns={[{ key: "branch_code", label: "Code" }, { key: "branch_name", label: "Nom" }, { key: "city", label: "Ville" }, { key: "hotel_spa_integrated", label: "Hotel/Spa", render: (r) => r.hotel_spa_integrated ? "Oui" : "Non" }]} rows={data.branches} />
+        <DataTable columns={[
+          { key: "branch_code", label: "Code" },
+          { key: "branch_name", label: "Nom" },
+          { key: "city", label: "Ville" },
+          { key: "hotel_spa_integrated", label: "Hotel/Spa", render: (r) => r.hotel_spa_integrated ? "Oui" : "Non" },
+          { key: "action", label: "Action", render: (r) => (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn type="button" onClick={() => editBranch(r)} style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><EditIcon fontSize="small" /></Btn>
+              <Btn type="button" onClick={() => deleteBranch(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /></Btn>
+            </div>
+          ) },
+        ]} rows={data.branches} />
       </div>
     </div>
   );
@@ -610,7 +810,7 @@ const GymManagement = () => {
   const renderMembers = () => (
     <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
       <form onSubmit={createMember} style={cardStyle}>
-        <SectionTitle>Nouveau membre</SectionTitle>
+        <SectionTitle>{selectedMember ? "Modifier membre" : "Nouveau membre"}</SectionTitle>
         <Field as="select" value={forms.member.branch_id} onChange={(e) => setForm("member", { branch_id: e.target.value })}>
           <option value="">Affecter à une salle</option>
           {data.branches.map((b) => <option key={b.id} value={b.id}>{b.branch_code} - {b.branch_name}</option>)}
@@ -627,11 +827,28 @@ const GymManagement = () => {
           <option value="inactive">Inactif</option>
           <option value="suspended">Suspendu</option>
         </Field>
-        <Btn type="submit">Ajouter membre</Btn>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn type="submit">{selectedMember ? "Mettre à jour" : "Ajouter membre"}</Btn>
+          {selectedMember ? <Btn type="button" variant="dark" onClick={cancelMemberEdit}>Annuler</Btn> : null}
+        </div>
       </form>
       <div style={cardStyle}>
         <SectionTitle>Membres</SectionTitle>
-        <DataTable columns={[{ key: "member_code", label: "Code" }, { key: "full_name", label: "Nom" }, { key: "branch_name", label: "Salle", render: (r) => r.branch_name || r.branch_code || (r.branch_id ? `#${r.branch_id}` : "-") }, { key: "employee_id", label: "Employé" }, { key: "cin", label: "CIN" }, { key: "phone", label: "Téléphone" }, { key: "status", label: "Statut" }]} rows={data.members} />
+        <DataTable columns={[
+          { key: "member_code", label: "Code" },
+          { key: "full_name", label: "Nom" },
+          { key: "branch_name", label: "Salle", render: (r) => r.branch_name || r.branch_code || (r.branch_id ? `#${r.branch_id}` : "-") },
+          { key: "employee_id", label: "Employé" },
+          { key: "cin", label: "CIN" },
+          { key: "phone", label: "Téléphone" },
+          { key: "status", label: "Statut" },
+          { key: "action", label: "Action", render: (r) => (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn type="button" onClick={() => editMember(r)} style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><EditIcon fontSize="small" /></Btn>
+              <Btn type="button" onClick={() => deleteMember(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /></Btn>
+            </div>
+          ) },
+        ]} rows={data.members} />
       </div>
     </div>
   );
@@ -639,7 +856,7 @@ const GymManagement = () => {
   const renderSubscriptions = () => (
     <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
       <form onSubmit={createSubscription} style={cardStyle}>
-        <SectionTitle>Nouvel abonnement</SectionTitle>
+        <SectionTitle>{selectedSubscription ? "Modifier abonnement" : "Nouvel abonnement"}</SectionTitle>
         <Field as="select" label="Salle / branche" hint="Salle dans laquelle l'abonnement sera rattaché." value={forms.subscription.branch_id} onChange={(e) => setForm("subscription", { branch_id: e.target.value })}>
           <option value="">Salle / branche</option>
           {data.branches.map((b) => <option key={b.id} value={b.id}>{b.branch_code} - {b.branch_name}</option>)}
@@ -657,7 +874,10 @@ const GymManagement = () => {
         <Field type="number" min="1" max="28" label="Jour d'échéance" placeholder="Jour échéance" value={forms.subscription.due_day} onChange={(e) => setForm("subscription", { due_day: e.target.value })} />
         <Field type="date" label="Date de début" value={forms.subscription.start_date} onChange={(e) => setForm("subscription", { start_date: e.target.value })} required />
         <Field type="date" label="Date de fin" value={forms.subscription.end_date} onChange={(e) => setForm("subscription", { end_date: e.target.value })} />
-        <Btn type="submit">Créer abonnement</Btn>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn type="submit">{selectedSubscription ? "Mettre à jour" : "Créer abonnement"}</Btn>
+          {selectedSubscription ? <Btn type="button" variant="dark" onClick={cancelSubscriptionEdit}>Annuler</Btn> : null}
+        </div>
       </form>
       <div style={cardStyle}>
         <SectionTitle>Abonnements</SectionTitle>
@@ -679,6 +899,8 @@ const GymManagement = () => {
                     <option value="sent_hq">sent_hq</option>
                     <option value="processed">processed</option>
                   </select>
+                  <Btn type="button" onClick={() => editSubscription(r)} style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><EditIcon fontSize="small" /></Btn>
+                  <Btn type="button" onClick={() => deleteSubscription(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /></Btn>
                   {r.payment_method === "salary_deduction" ? (
                     <>
                       <Btn onClick={() => downloadAuthorizationPdf(r.id)} style={{ padding: "7px 10px", display: "inline-flex", gap: 5, alignItems: "center" }}><PictureAsPdfIcon fontSize="small" /> Autorisation</Btn>
@@ -715,13 +937,33 @@ const GymManagement = () => {
             <Btn type="submit" style={{ width: "100%", display: "flex", gap: 8, alignItems: "center", justifyContent: "center" }}><AutoAwesomeIcon fontSize="small" /> Generate contract</Btn>
           </form>
           <form onSubmit={saveTemplate} style={cardStyle}>
-            <SectionTitle>Templates</SectionTitle>
+            <SectionTitle>{selectedTemplate ? "Modifier template" : "Templates"}</SectionTitle>
             <Field as="select" value={forms.template.contract_type} onChange={(e) => setForm("template", { contract_type: e.target.value })}>{contractTypeOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Field>
             <Field as="select" value={forms.template.language} onChange={(e) => setForm("template", { language: e.target.value })}>{languageOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Field>
             <Field placeholder="Template name" value={forms.template.name} onChange={(e) => setForm("template", { name: e.target.value })} required />
             <textarea value={forms.template.content_skeleton} onChange={(e) => setForm("template", { content_skeleton: e.target.value })} placeholder="Template skeleton" rows={4} style={{ ...inputStyle, resize: "vertical" }} />
-            <Btn type="submit" style={{ width: "100%" }}>Save template</Btn>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn type="submit" style={{ width: "100%" }}>{selectedTemplate ? "Mettre à jour" : "Save template"}</Btn>
+              {selectedTemplate ? <Btn type="button" variant="dark" onClick={cancelTemplateEdit}>Annuler</Btn> : null}
+            </div>
             <div style={{ marginTop: 10, color: TOKEN.textMuted, fontSize: 13 }}>{data.contractTemplates.length} templates available</div>
+            <div style={{ marginTop: 12 }}>
+              <DataTable
+                empty="Aucun template."
+                columns={[
+                  { key: "name", label: "Nom" },
+                  { key: "contract_type", label: "Type" },
+                  { key: "language", label: "Langue" },
+                  { key: "action", label: "Action", render: (r) => (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Btn type="button" onClick={() => editTemplate(r)} style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><EditIcon fontSize="small" /> Modifier</Btn>
+                      <Btn type="button" onClick={() => deleteTemplate(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /> Supprimer</Btn>
+                    </div>
+                  ) },
+                ]}
+                rows={data.contractTemplates}
+              />
+            </div>
           </form>
         </div>
         <div style={{ display: "grid", gap: 16 }}>
@@ -861,18 +1103,34 @@ const GymManagement = () => {
   const renderClasses = () => (
     <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
       <form onSubmit={createClass} style={cardStyle}>
-        <SectionTitle>Nouveau cours</SectionTitle>
+        <SectionTitle>{selectedClassItem ? "Modifier cours" : "Nouveau cours"}</SectionTitle>
         <Field placeholder="Nom du cours" value={forms.classItem.class_name} onChange={(e) => setForm("classItem", { class_name: e.target.value })} required />
         <Field placeholder="Type" value={forms.classItem.class_type} onChange={(e) => setForm("classItem", { class_type: e.target.value })} />
         <Field as="select" value={forms.classItem.coach_id} onChange={(e) => setForm("classItem", { coach_id: e.target.value })}><option value="">Coach</option>{data.coaches.map((c) => <option key={c.id} value={c.id}>{c.full_name}</option>)}</Field>
         <Field as="select" value={forms.classItem.branch_id} onChange={(e) => setForm("classItem", { branch_id: e.target.value })}><option value="">Salle</option>{data.branches.map((b) => <option key={b.id} value={b.id}>{b.branch_name}</option>)}</Field>
         <Field type="number" value={forms.classItem.capacity} onChange={(e) => setForm("classItem", { capacity: e.target.value })} />
         <Field type="datetime-local" value={forms.classItem.starts_at} onChange={(e) => setForm("classItem", { starts_at: e.target.value })} required />
-        <Btn type="submit">Planifier cours</Btn>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn type="submit">{selectedClassItem ? "Mettre à jour" : "Planifier cours"}</Btn>
+          {selectedClassItem ? <Btn type="button" variant="dark" onClick={cancelClassEdit}>Annuler</Btn> : null}
+        </div>
       </form>
       <div style={cardStyle}>
         <SectionTitle>Classes / Cours</SectionTitle>
-        <DataTable columns={[{ key: "class_name", label: "Cours" }, { key: "class_type", label: "Type" }, { key: "coach_name", label: "Coach" }, { key: "branch_name", label: "Salle" }, { key: "starts_at", label: "Début", render: (r) => String(r.starts_at || "").slice(0, 16).replace("T", " ") }, { key: "capacity", label: "Capacité" }]} rows={data.classes} />
+        <DataTable columns={[
+          { key: "class_name", label: "Cours" },
+          { key: "class_type", label: "Type" },
+          { key: "coach_name", label: "Coach" },
+          { key: "branch_name", label: "Salle" },
+          { key: "starts_at", label: "Début", render: (r) => String(r.starts_at || "").slice(0, 16).replace("T", " ") },
+          { key: "capacity", label: "Capacité" },
+          { key: "action", label: "Action", render: (r) => (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn type="button" onClick={() => editClass(r)} style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><EditIcon fontSize="small" /> Modifier</Btn>
+              <Btn type="button" onClick={() => deleteClass(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /> Supprimer</Btn>
+            </div>
+          ) },
+        ]} rows={data.classes} />
       </div>
     </div>
   );
@@ -893,7 +1151,20 @@ const GymManagement = () => {
       </form>
       <div style={cardStyle}>
         <SectionTitle>Coachs</SectionTitle>
-        <DataTable columns={[{ key: "full_name", label: "Nom" }, { key: "branch_name", label: "Salle", render: (r) => r.branch_name || r.branch_code || (r.branch_id ? `#${r.branch_id}` : "-") }, { key: "specialty", label: "Spécialité" }, { key: "phone", label: "Téléphone" }, { key: "email", label: "Email" }, { key: "status", label: "Statut" }, { key: "action", label: "Action", render: (r) => <Btn onClick={() => editCoach(r)} style={{ padding: "7px 10px" }}>Modifier</Btn> }]} rows={data.coaches} />
+        <DataTable columns={[
+          { key: "full_name", label: "Nom" },
+          { key: "branch_name", label: "Salle", render: (r) => r.branch_name || r.branch_code || (r.branch_id ? `#${r.branch_id}` : "-") },
+          { key: "specialty", label: "Spécialité" },
+          { key: "phone", label: "Téléphone" },
+          { key: "email", label: "Email" },
+          { key: "status", label: "Statut" },
+          { key: "action", label: "Action", render: (r) => (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn type="button" onClick={() => editCoach(r)} style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><EditIcon fontSize="small" /> Modifier</Btn>
+              <Btn type="button" onClick={() => deleteCoach(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /> Supprimer</Btn>
+            </div>
+          ) },
+        ]} rows={data.coaches} />
       </div>
     </div>
   );
@@ -958,7 +1229,21 @@ const GymManagement = () => {
       </form>
       <div style={cardStyle}>
         <SectionTitle>Images, documents et fichiers Gym</SectionTitle>
-        <DataTable columns={[{ key: "original_filename", label: "Fichier" }, { key: "file_category", label: "Catégorie" }, { key: "entity_type", label: "Entité" }, { key: "entity_id", label: "ID" }, { key: "mime_type", label: "Type" }, { key: "file_size", label: "Taille", render: (r) => `${Math.round(Number(r.file_size || 0) / 1024)} KB` }, { key: "created_at", label: "Date", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") }, { key: "action", label: "Action", render: (r) => <Btn onClick={() => openGymFile(r.id)} style={{ padding: "7px 10px" }}>Ouvrir</Btn> }]} rows={data.files} />
+        <DataTable columns={[
+          { key: "original_filename", label: "Fichier" },
+          { key: "file_category", label: "Catégorie" },
+          { key: "entity_type", label: "Entité" },
+          { key: "entity_id", label: "ID" },
+          { key: "mime_type", label: "Type" },
+          { key: "file_size", label: "Taille", render: (r) => `${Math.round(Number(r.file_size || 0) / 1024)} KB` },
+          { key: "created_at", label: "Date", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") },
+          { key: "action", label: "Action", render: (r) => (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn type="button" onClick={() => openGymFile(r.id)} style={{ padding: "7px 10px" }}>Ouvrir</Btn>
+              <Btn type="button" onClick={() => runAction(() => gymApi.delete(`/files/${r.id}`))} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /> Supprimer</Btn>
+            </div>
+          ) },
+        ]} rows={data.files} />
       </div>
     </div>
   );
@@ -1233,6 +1518,23 @@ const GymManagement = () => {
               </div>
             ) : null}
           </div>
+
+          <button
+            type="button"
+            onClick={logout}
+            title="Déconnexion"
+            style={{
+              width: 42, height: 42, borderRadius: 9,
+              borderWidth: 1, borderStyle: "solid", borderColor: TOKEN.border,
+              background: TOKEN.bgInput, color: TOKEN.danger,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", flexShrink: 0, transition: "all 0.18s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = TOKEN.danger; e.currentTarget.style.background = TOKEN.dangerLight; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = TOKEN.border; e.currentTarget.style.background = TOKEN.bgInput; }}
+          >
+            <LogoutIcon fontSize="small" />
+          </button>
         </header>
 
         {/* ── PAGE CONTENT ── */}

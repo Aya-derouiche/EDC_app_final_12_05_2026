@@ -3,7 +3,7 @@ const multer = require("multer");
 const { query } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const config = require("../config");
-const { uploadGymFile, uploadGymBuffer, objectStream, presignedUrl, bucket: minioBucket } = require("../storage/minio");
+const { uploadGymFile, uploadGymBuffer, objectStream, presignedUrl, removeObject, isMinioUnavailableError, bucket: minioBucket } = require("../storage/minio");
 const {
   CONTRACT_TYPES,
   clauseRecommendations,
@@ -57,6 +57,37 @@ function formatAmount(value) {
 function normalizeMoney(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n.toFixed(3) : "0.000";
+}
+
+function digitsOnly(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function fixedWidth(value, length, { pad = " ", align = "left" } = {}) {
+  const text = String(value ?? "");
+  const clipped = text.length > length ? text.slice(0, length) : text;
+  if (align === "right") {
+    return clipped.padStart(length, pad);
+  }
+  return clipped.padEnd(length, pad);
+}
+
+function fixedDigits(value, length, { align = "right" } = {}) {
+  return fixedWidth(digitsOnly(value), length, { pad: "0", align });
+}
+
+function formatYmd(value) {
+  if (!value) return "";
+  const text = String(value).slice(0, 10);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) return `${match[1]}${match[2]}${match[3]}`;
+  const compact = digitsOnly(value);
+  return compact.length >= 8 ? compact.slice(0, 8) : compact.padEnd(8, "0");
+}
+
+function formatYymmdd(value) {
+  const ymd = formatYmd(value);
+  return ymd.length === 8 ? ymd.slice(2) : fixedDigits(ymd, 6);
 }
 
 function stripDigits(value) {
@@ -135,6 +166,10 @@ function userDisplayName(user) {
   return user?.full_name || user?.name || user?.username || user?.email || String(user?.id || "unknown");
 }
 
+function buildFixedLine(...segments) {
+  return segments.join("");
+}
+
 async function logGenerationOperation({ req, tenantCode, branchId = null, operationType, entityType = null, entityId = null, fileName = null, mimeType = null, status = "success", details = {} }) {
   try {
     await query(
@@ -165,36 +200,81 @@ async function logGenerationOperation({ req, tenantCode, branchId = null, operat
 
 function buildBankXml({ tenantCode, monthRef, generatedAt, generatedBy, rows }) {
   const totalAmount = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-  const entries = rows.map((row) => {
-    const contractNumber = row.contract_number || `SD-${row.subscription_id}`;
-    const authorizationReference = row.authorization_reference || row.deduction_doc_ref || `AUTH-SALARY-${row.subscription_id}`;
-    return [
-      "  <DirectDebit>",
-      `    <SubscriberFullName>${escapeXml(row.full_name || "")}</SubscriberFullName>`,
-      `    <MembershipNumber>${escapeXml(row.member_code || row.subscription_id || "")}</MembershipNumber>`,
-      `    <NationalIdNumber>${escapeXml(row.cin || "")}</NationalIdNumber>`,
-      `    <BankAccountNumber>${escapeXml(row.bank_account || "")}</BankAccountNumber>`,
-      `    <MonthlyAmount currency="DT">${escapeXml(normalizeMoney(row.amount))}</MonthlyAmount>`,
-      `    <ContractNumber>${escapeXml(contractNumber)}</ContractNumber>`,
-      `    <DirectDebitAuthorizationReference>${escapeXml(authorizationReference)}</DirectDebitAuthorizationReference>`,
-      `    <DueDate>${escapeXml(dueDateForMonth(monthRef, row.due_day || 5))}</DueDate>`,
-      `    <PaymentMethod>Salary Deduction</PaymentMethod>`,
-      `    <BranchName>${escapeXml(row.branch_name || "")}</BranchName>`,
-      "  </DirectDebit>",
-    ].join("\n");
-  }).join("\n");
+  const bankCode = String(process.env.GYM_BANK_CODE || "2500").trim() || "2500";
+  const bankCentralCode = String(process.env.GYM_BANK_CENTRAL_CODE || "0127").trim() || "0127";
+  const issuerCode = String(process.env.GYM_BANK_ISSUER_CODE || "25016").trim() || "25016";
+  const authBankCode = String(process.env.GYM_AUTH_BANK_CODE || "2508").trim() || "2508";
+  const authBranchCode = String(process.env.GYM_AUTH_BRANCH_CODE || "500000").trim() || "500000";
+  const creditorName = String(process.env.GYM_CREDITOR_NAME || "La Sté Olympe Gym").trim() || "La Sté Olympe Gym";
+  const supportDigits = digitsOnly(`${tenantCode}${monthRef || generatedAt}`).padEnd(14, "0").slice(0, 14);
+  const supportReference = `P${supportDigits}`.slice(0, 15);
+  const dueDate = dueDateForMonth(monthRef, 5);
+  const dueDateYymmdd = formatYymmdd(dueDate);
+  const generatedByName = userDisplayName(generatedBy);
+  const totalCents = Math.round(Number(totalAmount || 0) * 100);
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<DirectDebitBatch xmlns="urn:edc:gym:salary-deduction" tenantCode="${escapeXml(tenantCode)}" monthRef="${escapeXml(monthRef)}" generatedAt="${escapeXml(generatedAt)}">
-  <BatchHeader>
-    <TotalEntries>${rows.length}</TotalEntries>
-    <TotalAmount currency="DT">${escapeXml(totalAmount.toFixed(3))}</TotalAmount>
-    <GeneratedBy userId="${escapeXml(generatedBy?.id || "")}">${escapeXml(userDisplayName(generatedBy))}</GeneratedBy>
-  </BatchHeader>
-  <DirectDebits>
-${entries}
-  </DirectDebits>
-</DirectDebitBatch>`;
+  const header = buildFixedLine(
+    fixedWidth("09", 2),
+    fixedDigits(bankCode, 4),
+    fixedDigits(bankCentralCode, 4),
+    fixedDigits(issuerCode, 5),
+    "0",
+    fixedWidth(`${supportDigits}20`, 16),
+    fixedWidth(`${dueDateYymmdd}${supportReference.slice(0, 10)}`, 16),
+    fixedWidth(`${fixedDigits(rows.length, 10)}000000`, 16),
+    fixedWidth(`${fixedDigits(totalCents, 12)}0000`, 16),
+    fixedWidth(`${fixedDigits(rows.length, 4)}${" ".repeat(12)}`, 16),
+    fixedWidth("", 64)
+  );
+
+  const detailLines = rows.map((row, index) => {
+    const memberCode = digitsOnly(row.member_code || row.employee_id || row.subscription_id || String(index + 1));
+    const accountDigits = digitsOnly(row.bank_account || "");
+    const firstNameChunk = fixedWidth(row.full_name || "", 10);
+    const secondNameChunk = fixedWidth((row.full_name || "").slice(10), 16);
+    const amountCents = Math.round(Number(row.amount || 0) * 100);
+    const referenceTail = `${memberCode || String(index + 1).padStart(8, "0")}`.slice(-2);
+    return buildFixedLine(
+      fixedWidth("02", 2),
+      fixedDigits(bankCode, 4),
+      fixedDigits(bankCentralCode, 4),
+      fixedDigits(issuerCode, 5),
+      "0",
+      fixedWidth(supportDigits.slice(0, 14) + referenceTail, 16),
+      fixedWidth(`${accountDigits.slice(0, 8).padEnd(8, "0")}${memberCode.padStart(8, "0").slice(-8)}`, 16),
+      fixedWidth(`${accountDigits.slice(8, 16).padEnd(8, "0")}${digitsOnly(row.cin || "").slice(-8).padStart(8, "0")}`, 16),
+      fixedWidth(`${memberCode.padStart(6, "0").slice(-6)}${firstNameChunk}`, 16),
+      fixedWidth(secondNameChunk, 16),
+      fixedWidth("", 16),
+      fixedWidth("".padStart(8, " "), 8),
+      fixedDigits(amountCents, 8),
+      fixedDigits(amountCents % 100, 2),
+      fixedWidth("", 30)
+    );
+  }).join("\r");
+
+  const authLines = rows.map((row, index) => {
+    const accountDigits = digitsOnly(row.bank_account || "");
+    const memberCode = digitsOnly(row.member_code || row.employee_id || row.subscription_id || String(index + 1));
+    const amountCents = Math.round(Number(row.amount || 0) * 100);
+    const startDate = formatYmd(row.start_date) || formatYmd(dueDate);
+    const endDate = formatYmd(row.end_date) || formatYmd(row.start_date) || formatYmd(dueDate);
+    const authRef = `${memberCode || String(index + 1).padStart(8, "0")}`.padStart(8, "0").slice(-8);
+    return buildFixedLine(
+      fixedWidth("01", 2),
+      fixedDigits(authBankCode, 4),
+      fixedDigits(authBranchCode, 6),
+      fixedDigits(authRef, 8),
+      fixedWidth(`${accountDigits.slice(0, 8).padEnd(8, "0")}${accountDigits.slice(8, 12).padEnd(8, "0")}`, 16),
+      fixedDigits(amountCents, 12),
+      "1A",
+      fixedWidth(startDate || dueDate, 8),
+      fixedWidth(endDate || dueDate, 8),
+      fixedWidth("", 94)
+    );
+  }).join("\r");
+
+  return [header, detailLines, authLines].filter(Boolean).join("\r");
 }
 
 function buildSalaryDeductionAuthorizationHtml(row) {
@@ -348,6 +428,218 @@ function buildSalaryDeductionAuthorizationHtml(row) {
   `;
 }
 
+async function buildSalaryDeductionAuthorizationHtmlPaper(row) {
+  const today = new Date();
+  const companyName = row.company_name || row.branch_company_name || "La Sté Olympe Gym";
+  const branchName = row.branch_name || "Gym";
+  const contractNumber = row.contract_number || `SUB-${row.id}`;
+  const city = row.branch_city || "Sousse";
+  const deductionDay = Number(row.deduction_day || 5);
+  const authorizationReference = row.authorization_reference || row.deduction_doc_ref || `AUTH-SALARY-${row.id}`;
+  const rib = stripDigits(row.bank_account || "");
+  const ribChars = (rib || "").split("");
+  const ribBoxes = Array.from({ length: Math.max(24, ribChars.length || 24) }, (_, i) => `<span>${escapeHtml(ribChars[i] || "")}</span>`).join("");
+  const hand = (value) => `<span class="hand">${escapeHtml(value || "")}</span>`;
+  const line = (value, min = 180) => `<span class="line" style="min-width:${min}px">${escapeHtml(value || "")}</span>`;
+  return `
+    <style>
+      @page { size: A4; margin: 7mm; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #fff; color: #404854; font-family: Arial, Helvetica, sans-serif; }
+      .sheet { min-height: 279mm; border: 1px solid #e5e7eb; padding: 14px 16px 12px; }
+      .top-meta { display: grid; grid-template-columns: 1fr 245px; gap: 12px; margin-bottom: 6px; }
+      .meta { font-size: 10.8px; line-height: 1.9; color: #4b5563; }
+      .meta-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+      .meta-label { min-width: 70px; text-align: right; }
+      .meta-value { display: inline-block; border-bottom: 1px solid #c6ccd6; min-width: 130px; padding: 0 4px 1px; color: #111827; }
+      .title {
+        width: 66%;
+        margin: 2px auto 12px;
+        border: 2px solid #808896;
+        padding: 9px 16px;
+        text-align: center;
+        font-size: 18px;
+        font-weight: 700;
+        color: #4b5563;
+      }
+      .hand {
+        font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+        color: #5572e0;
+        font-size: 18px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      .line {
+        display: inline-block;
+        border-bottom: 1px solid #b9c2ce;
+        min-height: 18px;
+        padding: 0 5px 1px;
+        color: #111827;
+      }
+      .body { font-size: 11.1px; line-height: 1.72; }
+      .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; margin: 5px 0; }
+      .row .label { font-weight: 700; color: #374151; }
+      .subtle { color: #6b7280; font-size: 10px; }
+      .rib-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: start; margin: 6px 0 8px; }
+      .rib-grid { display: flex; flex-wrap: wrap; gap: 0; }
+      .rib-grid span {
+        width: 24px;
+        height: 27px;
+        border: 1px solid #7c8a99;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+        color: #5572e0;
+        font-size: 17px;
+      }
+      .paragraph { margin: 6px 0; }
+      .choice-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 10px; }
+      .check-box {
+        width: 31px;
+        height: 22px;
+        border: 1px solid #8c96a5;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        background: #fff;
+        color: #111827;
+      }
+      .check-box.active { background: #c3f48f; border-color: #77aa48; }
+      .amount-line {
+        display: inline-block;
+        min-width: 60px;
+        text-align: center;
+        border-bottom: 1px solid #b9c2ce;
+        font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+        color: #5572e0;
+        font-size: 18px;
+        padding: 0 4px;
+      }
+      .signature-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 14px; }
+      .signature-box { min-height: 120px; position: relative; }
+      .sig-title { font-size: 10.8px; color: #4b5563; font-weight: 700; margin-bottom: 8px; }
+      .stamp {
+        position: absolute;
+        right: 6px;
+        bottom: -10px;
+        width: 118px;
+        height: 118px;
+        border: 2px solid rgba(85, 114, 224, 0.5);
+        border-radius: 50%;
+        color: rgba(85, 114, 224, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: rotate(-14deg);
+        font-size: 10px;
+      }
+      .conditions { margin-top: 14px; font-size: 10.1px; line-height: 1.7; color: #4b5563; }
+      .conditions h4 { margin: 0 0 6px; font-size: 11px; color: #374151; }
+      .conditions .section { margin-top: 8px; }
+      .conditions .indent { margin-left: 12px; }
+      .footer { margin-top: 10px; font-size: 10.8px; text-align: center; color: #4b5563; }
+    </style>
+    <section class="sheet">
+      <div class="top-meta">
+        <div></div>
+        <div class="meta">
+          <div class="meta-row"><span class="meta-label">contrat N°</span><span class="meta-value">${escapeHtml(contractNumber)}</span></div>
+          <div class="meta-row"><span class="meta-label">Salle</span><span class="meta-value">${escapeHtml(branchName)}</span></div>
+          <div class="meta-row"><span class="meta-label">commercial</span><span class="meta-value">${escapeHtml(row.commercial_name || row.sales_person || row.full_name || "")}</span></div>
+        </div>
+      </div>
+
+      <div class="title">Autorisation de prélèvement automatique</div>
+
+      <div class="body">
+        <div class="row">
+          <div class="label">Je soussigné(e)</div>
+          <div>${hand(row.full_name || "")}</div>
+        </div>
+        <div class="row">
+          <div class="label">Nom et Prénom</div>
+          <div>${line(row.full_name || "", 270)} <span class="subtle">( contrat au nom de )</span></div>
+        </div>
+        <div class="row">
+          <div class="label">C.I.N N°</div>
+          <div>${hand(row.cin || "")} <span class="subtle">délivrée le</span> ${line(row.cin_issued_at || "", 100)} <span class="subtle">à</span> ${line(row.cin_issued_place || "", 90)}</div>
+        </div>
+        <div class="row">
+          <div class="label">N° téléphone</div>
+          <div>${hand(row.phone || "")}</div>
+        </div>
+
+        <div class="rib-row">
+          <div class="label">RIB Bancaire</div>
+          <div class="rib-grid">${ribBoxes}</div>
+        </div>
+
+        <div class="paragraph">
+          autorise <strong>${escapeHtml(companyName)}</strong> à exécuter les ordres de prélèvements automatiques, fermes et irrévocables sur mon compte
+          une fois par mois à partir du mois de ${hand(formatMonthYear(row.start_date) || "")} et jusqu'au mois ${hand(formatMonthYear(row.end_date) || "")}.
+        </div>
+
+        <div class="choice-row">
+          <span>et ce ou bien le 05 de chaque mois</span>
+          <span class="check-box ${deductionDay === 5 ? "active" : ""}">5</span>
+          <span>ou bien le 26 de chaque mois</span>
+          <span class="check-box ${deductionDay === 26 ? "active" : ""}">26</span>
+          <span class="subtle">( à mettre une croix )</span>
+        </div>
+
+        <div class="paragraph">
+          d'un montant de <span class="amount-line">${escapeHtml(normalizeMoney(row.amount))}</span> dt,000, au profit de <strong>${escapeHtml(companyName)}</strong>
+        </div>
+
+        <div class="paragraph">
+          MF : 1271307F A/V/0000 - adresse : Immeuble Badr Bloc 8 4ème étage - khezama 47-sousse.
+        </div>
+        <div class="paragraph">
+          et ce sur le compte n° <strong>${escapeHtml(rib || "")}</strong> ouvert à <strong>Banque Zitouna</strong> - agence monastir.
+        </div>
+        <div class="paragraph">
+          * Code de la sté olympe gym au niveau de La Banque Centrale : 0127
+        </div>
+
+        <div class="signature-row">
+          <div class="signature-box">
+            <div class="sig-title">Fait à ${escapeHtml(city)}, le ${escapeHtml(formatDate(today))}</div>
+            <div style="margin-top: 28px; font-size: 10.1px;">Signature du Titulaire du compte</div>
+            <div style="font-size: 10.1px;">( Lu et approuvé )</div>
+            <div style="margin-top: 18px; font-size: 10px;">Nom : <span class="line" style="min-width: 150px;"></span></div>
+          </div>
+          <div class="signature-box">
+            <div class="sig-title">Fait à ${escapeHtml(branchName)}, le ${escapeHtml(formatDate(today))}</div>
+            <div style="margin-top: 28px; font-size: 10.1px; text-align: center;">Accord de la Banque</div>
+            <div style="font-size: 10.1px; text-align: center;">(Visa et cachet du chef d'agence )</div>
+            <div class="stamp">CACHET</div>
+          </div>
+        </div>
+
+        <div class="conditions">
+          <h4>Conditions particulières exigées :</h4>
+          <div class="section">
+            <strong>1 - Changement des coordonnées bancaires :</strong>
+            <div class="indent">En cas de changement des coordonnées bancaires, l'abonné est tenu de refaire l'autorisation et de la déposer dans la salle de sport concernée.</div>
+          </div>
+          <div class="section">
+            <strong>2 - Modalités de résiliation de l'abonnement :</strong>
+            <div class="indent">L'abonnement ne peut être résilié ni remboursé pendant la durée minimale, soit 12 mois.</div>
+            <div class="indent">L'abonnement est conclu pour une durée minimale de 12 mois. Cette durée est incompressible.</div>
+            <div class="indent">Les montants des prélèvements sont garantis pendant la période minimale de l'abonnement.</div>
+            <div class="indent">Les montants des prélèvements peuvent être révisés à la hausse après la période minimale d'engagement.</div>
+            <div class="indent">En cas d'impayés d'une échéance, la société Olympe Gym bloquera systématiquement l'abonnement.</div>
+            <div class="indent">L'adhérent est tenu de régulariser le montant dû pour réactiver son abonnement.</div>
+          </div>
+          <div class="footer">Fait à ${escapeHtml(city)}, le ${escapeHtml(formatDate(today))}. Référence dossier ${escapeHtml(contractNumber)}.</div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function tenantCode(req) {
   const code =
     req.user?.code_entreprise ||
@@ -382,6 +674,15 @@ function isHqUser(req) {
   // A gym_manager with a branch_id is scoped to that branch. Without one,
   // the account is the central gym manager and must be able to manage branches.
   return role === "gym_manager" && !userBranchId(req);
+}
+
+function requireHqAccess(req, res) {
+  if (isHqUser(req)) return true;
+  res.status(403).json({
+    error: "Forbidden",
+    detail: "This operation is reserved for HQ-level users.",
+  });
+  return false;
 }
 
 function userBranchId(req) {
@@ -608,6 +909,18 @@ async function safeCreateNotification(input) {
   } catch (e) {
     console.warn("[gym notification skipped]", e?.message || e);
     return null;
+  }
+}
+
+async function trySaveGymGeneratedFile(args) {
+  try {
+    return await saveGymGeneratedFile(args);
+  } catch (error) {
+    if (isMinioUnavailableError(error)) {
+      console.warn("[gym storage skipped]", error?.message || error);
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -1415,6 +1728,28 @@ router.get("/files/:id/url", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.delete("/files/:id", async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const params = [req.params.id, scope.code];
+    const where = ["id=$1", "tenant_code=$2"];
+    addBranchCondition(where, params, scope);
+    const out = await query(`SELECT * FROM gym_files WHERE ${where.join(" AND ")}`, params);
+    if (!out.rows[0]) return res.status(404).json({ error: "File not found" });
+    if (out.rows[0].minio_object_key) {
+      try {
+        await removeObject(out.rows[0].minio_object_key);
+      } catch (storageError) {
+        console.warn("[gym file delete skipped]", storageError?.message || storageError);
+      }
+    }
+    await query(`DELETE FROM gym_files WHERE id=$1 AND tenant_code=$2`, [req.params.id, scope.code]);
+    res.json({ message: "File deleted", id: req.params.id });
+  } catch (e) { next(e); }
+});
+
 router.get("/notifications", async (req, res, next) => {
   try {
     await ensureSchema();
@@ -1619,6 +1954,16 @@ router.put("/contract-ai/templates/:id", requireRole("admin", "super_admin", "hq
     );
     if (!out.rows[0]) return res.status(404).json({ error: "Template not found" });
     res.json(out.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.delete("/contract-ai/templates/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const code = String(tenantCode(req) || "");
+    const out = await query(`DELETE FROM contract_templates WHERE id=$1 AND tenant_code=$2 RETURNING *`, [req.params.id, code]);
+    if (!out.rows[0]) return res.status(404).json({ error: "Template not found" });
+    res.json({ message: "Template deleted", id: out.rows[0].id });
   } catch (e) { next(e); }
 });
 
@@ -1907,7 +2252,7 @@ router.get("/contract-ai/contracts/:id/pdf", async (req, res, next) => {
       });
     }
     const fileName = `${contract.contract_number || `contract-${contract.id}`}.pdf`;
-    await saveGymGeneratedFile({
+    await trySaveGymGeneratedFile({
       req,
       tenantCode: scope.code,
       branchId: contract.branch_id || null,
@@ -1949,6 +2294,38 @@ router.get("/branches", async (req, res, next) => {
     addBranchCondition(where, params, scope, "", "id");
     const r = await query(`SELECT * FROM gym_branches WHERE ${where.join(" AND ")} ORDER BY id DESC`, params);
     res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.put("/branches/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const b = req.body || {};
+    const out = await query(
+      `UPDATE gym_branches
+       SET branch_code=$1, branch_name=$2, city=$3, hotel_spa_integrated=$4
+       WHERE id=$5 AND code_entreprise=$6
+       RETURNING *`,
+      [b.branch_code, b.branch_name, b.city || null, Boolean(b.hotel_spa_integrated), req.params.id, scope.code]
+    );
+    if (!out.rows[0]) return res.status(404).json({ error: "Branch not found" });
+    res.json(out.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.delete("/branches/:id", requireRole("admin", "super_admin", "hq_admin"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const params = [req.params.id, scope.code];
+    const where = ["id=$1", "code_entreprise=$2"];
+    addBranchCondition(where, params, scope);
+    const out = await query(`DELETE FROM gym_branches WHERE ${where.join(" AND ")} RETURNING *`, params);
+    if (!out.rows[0]) return res.status(404).json({ error: "Branch not found" });
+    res.json({ message: "Branch deleted", id: out.rows[0].id });
   } catch (e) { next(e); }
 });
 
@@ -2035,15 +2412,36 @@ router.post("/subscriptions", requireRole("admin", "super_admin", "hq_admin", "g
     const scope = requireBranchScope(req, res);
     if (!scope) return;
     const b = req.body || {};
+    const memberId = Number(b.member_id);
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return res.status(400).json({ error: "Invalid member_id" });
+    }
     const paymentMethod = String(b.payment_method || "direct");
     const workflow = paymentMethod === "salary_deduction" ? "printed" : (b.workflow_status || "processed");
     const subscriptionStatus = paymentMethod === "salary_deduction" ? "pending_validation" : "active";
-    const branchId = scopedBranchId(scope, b.branch_id || null);
-    const memberParams = [b.member_id, scope.code];
-    const memberWhere = ["id=$1", "code_entreprise=$2"];
-    addBranchCondition(memberWhere, memberParams, { ...scope, branchId });
-    const memberCheck = await query(`SELECT id FROM gym_members WHERE ${memberWhere.join(" AND ")}`, memberParams);
-    if (!memberCheck.rows[0]) return res.status(404).json({ error: "Member not found in this branch" });
+    const selectedBranchId = b.branch_id !== undefined && b.branch_id !== null && b.branch_id !== "" ? Number(b.branch_id) : null;
+    let branchId = scopedBranchId(scope, selectedBranchId);
+    if (selectedBranchId !== null && !Number.isInteger(selectedBranchId)) {
+      return res.status(400).json({ error: "Invalid branch_id" });
+    }
+
+    const memberCheck = await query(
+      `SELECT id, branch_id
+       FROM gym_members
+       WHERE id=$1 AND code_entreprise=$2`,
+      [memberId, scope.code]
+    );
+    const member = memberCheck.rows[0];
+    if (!member) return res.status(404).json({ error: "Member not found" });
+
+    const memberBranchId = member.branch_id !== null && member.branch_id !== undefined ? Number(member.branch_id) : null;
+    if (selectedBranchId !== null && memberBranchId !== null && selectedBranchId !== memberBranchId) {
+      return res.status(400).json({
+        error: "Member belongs to a different branch",
+        detail: "Choose the matching branch for this member.",
+      });
+    }
+    if (!branchId) branchId = memberBranchId;
 
     const r = await query(
       `INSERT INTO gym_subscriptions
@@ -2104,6 +2502,81 @@ router.post("/subscriptions", requireRole("admin", "super_admin", "hq_admin", "g
   } catch (e) { next(e); }
 });
 
+router.patch("/subscriptions/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager", "comptable", "client"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const b = req.body || {};
+    const current = await query(`SELECT * FROM gym_subscriptions WHERE id=$1 AND code_entreprise=$2`, [req.params.id, scope.code]);
+    if (!current.rows[0]) return res.status(404).json({ error: "Subscription not found" });
+
+    const rawMemberId = b.member_id !== undefined && b.member_id !== null && b.member_id !== "" ? Number(b.member_id) : current.rows[0].member_id;
+    const rawBranchId = b.branch_id !== undefined && b.branch_id !== null && b.branch_id !== "" ? Number(b.branch_id) : current.rows[0].branch_id;
+    const memberId = Number.isInteger(rawMemberId) && rawMemberId > 0 ? rawMemberId : current.rows[0].member_id;
+    const branchCandidate = b.branch_id !== undefined && b.branch_id !== null && b.branch_id !== "" ? Number(b.branch_id) : null;
+    if (branchCandidate !== null && !Number.isInteger(branchCandidate)) {
+      return res.status(400).json({ error: "Invalid branch_id" });
+    }
+
+    let branchId = scopedBranchId(scope, branchCandidate !== null ? branchCandidate : rawBranchId);
+    if (memberId) {
+      const member = await query(`SELECT id, branch_id FROM gym_members WHERE id=$1 AND code_entreprise=$2`, [memberId, scope.code]);
+      if (!member.rows[0]) return res.status(404).json({ error: "Member not found" });
+      const memberBranchId = member.rows[0].branch_id !== null && member.rows[0].branch_id !== undefined ? Number(member.rows[0].branch_id) : null;
+      if (branchCandidate !== null && memberBranchId !== null && branchCandidate !== memberBranchId) {
+        return res.status(400).json({ error: "Member belongs to a different branch" });
+      }
+      if (!branchId) branchId = memberBranchId;
+    }
+
+    const out = await query(
+      `UPDATE gym_subscriptions
+       SET branch_id=$1,
+           member_id=$2,
+           plan_name=COALESCE($3, plan_name),
+           amount=COALESCE($4, amount),
+           payment_method=COALESCE($5, payment_method),
+           workflow_status=COALESCE($6, workflow_status),
+           due_day=COALESCE($7, due_day),
+           start_date=COALESCE($8, start_date),
+           end_date=$9,
+           updated_at=NOW()
+       WHERE id=$10 AND code_entreprise=$11
+       RETURNING *`,
+      [
+        branchId,
+        memberId,
+        b.plan_name || null,
+        b.amount !== undefined && b.amount !== null && b.amount !== "" ? Number(b.amount) : null,
+        b.payment_method || null,
+        b.workflow_status || null,
+        b.due_day !== undefined && b.due_day !== null && b.due_day !== "" ? Number(b.due_day) : null,
+        b.start_date || null,
+        b.end_date || null,
+        req.params.id,
+        scope.code,
+      ]
+    );
+    if (!out.rows[0]) return res.status(404).json({ error: "Subscription not found" });
+    res.json(out.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.delete("/subscriptions/:id", requireRole("admin", "super_admin", "hq_admin"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const params = [req.params.id, scope.code];
+    const where = ["id=$1", "code_entreprise=$2"];
+    addBranchCondition(where, params, scope);
+    const out = await query(`DELETE FROM gym_subscriptions WHERE ${where.join(" AND ")} RETURNING *`, params);
+    if (!out.rows[0]) return res.status(404).json({ error: "Subscription not found" });
+    res.json({ message: "Subscription deleted", id: out.rows[0].id });
+  } catch (e) { next(e); }
+});
+
 router.get("/subscriptions", async (req, res, next) => {
   try {
     await ensureSchema();
@@ -2131,7 +2604,10 @@ router.get("/subscriptions", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.get("/hq/validations", requireRole("hq_admin", "super_admin", "admin"), async (req, res, next) => {
+router.get("/hq/validations", (req, res, next) => {
+  if (!requireHqAccess(req, res)) return;
+  return next();
+}, async (req, res, next) => {
   try {
     await ensureSchema();
     const code = String(tenantCode(req) || "");
@@ -2159,7 +2635,10 @@ router.get("/hq/validations", requireRole("hq_admin", "super_admin", "admin"), a
   } catch (e) { next(e); }
 });
 
-router.post("/hq/validate/:subscriptionId", requireRole("hq_admin", "super_admin", "admin"), async (req, res, next) => {
+router.post("/hq/validate/:subscriptionId", (req, res, next) => {
+  if (!requireHqAccess(req, res)) return;
+  return next();
+}, async (req, res, next) => {
   try {
     await ensureSchema();
     const code = String(tenantCode(req) || "");
@@ -2386,7 +2865,7 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Salary deduction subscription not found" });
 
-    const html = buildSalaryDeductionAuthorizationHtml(r.rows[0]);
+    const html = buildSalaryDeductionAuthorizationHtmlPaper(r.rows[0]);
     let pdf = await generatePdfFromHtml({
       title: `Autorisation prelevement automatique - SUB-${r.rows[0].id}`,
       html,
@@ -2403,7 +2882,7 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
       });
     }
     const fileName = `autorisation_prelevement_automatique_SUB-${r.rows[0].id}.pdf`;
-    const savedFile = await saveGymGeneratedFile({
+    const savedFile = await trySaveGymGeneratedFile({
       req,
       tenantCode: scope.code,
       branchId: r.rows[0].branch_id || null,
@@ -2424,11 +2903,13 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
       [`AUTH-SALARY-${r.rows[0].id}`, r.rows[0].id, scope.code]
     );
 
-    await query(
-      `UPDATE gym_contracts SET authorization_pdf_path=$1
-       WHERE tenant_code=$2 AND subscription_id=$3`,
-      [`minio:${savedFile.minio_object_key}`, scope.code, r.rows[0].id]
-    );
+    if (savedFile) {
+      await query(
+        `UPDATE gym_contracts SET authorization_pdf_path=$1
+         WHERE tenant_code=$2 AND subscription_id=$3`,
+        [`minio:${savedFile.minio_object_key}`, scope.code, r.rows[0].id]
+      );
+    }
 
     await logGenerationOperation({
       req,
@@ -2628,20 +3109,20 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
     if (!validated.rows.length) {
       return res.status(409).json({
         error: "No validated salary deduction requests found",
-        message: "XML generation is blocked until at least one salary deduction subscription is approved by HQ and active.",
+        message: "Bank file generation is blocked until at least one salary deduction subscription is approved by HQ and active.",
       });
     }
 
     const generatedAt = new Date().toISOString();
-    const fileName = `salary_deduction_${code}_${monthRef}.xml`;
-    const xml = buildBankXml({
+    const fileName = `salary_deduction_${code}_${monthRef}.txt`;
+    const flatFile = buildBankXml({
       tenantCode: code,
       monthRef,
       generatedAt,
       generatedBy: req.user || {},
       rows: validated.rows,
     });
-    const xmlBuffer = Buffer.from(xml, "utf8");
+    const fileBuffer = Buffer.from(flatFile, "utf8");
 
     const job = await query(
       `INSERT INTO gym_batch_jobs (code_entreprise, month_ref, status, created_by, processed_by, processed_at)
@@ -2650,7 +3131,7 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       [code, monthRef, req.user?.id || null]
     );
 
-    const savedXml = await saveGymGeneratedFile({
+    const savedXml = await trySaveGymGeneratedFile({
       req,
       tenantCode: code,
       branchId: scope.branchId || null,
@@ -2658,15 +3139,15 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       entityId: job.rows[0].id,
       category: "bank_xml",
       filename: fileName,
-      mimeType: "application/xml",
-      buffer: xmlBuffer,
+      mimeType: "text/plain; charset=utf-8",
+      buffer: fileBuffer,
     });
 
     const exp = await query(
       `INSERT INTO gym_salary_deduction_exports (batch_job_id, file_name, xml_content, minio_bucket, minio_object_key)
        VALUES ($1,$2,$3,$4,$5)
        RETURNING *`,
-      [job.rows[0].id, fileName, xml, savedXml.minio_bucket, savedXml.minio_object_key]
+      [job.rows[0].id, fileName, flatFile, savedXml?.minio_bucket || null, savedXml?.minio_object_key || null]
     );
 
     await logGenerationOperation({
@@ -2677,7 +3158,7 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       entityType: "bank_batch",
       entityId: job.rows[0].id,
       fileName,
-      mimeType: "application/xml",
+      mimeType: "text/plain; charset=utf-8",
       details: {
         month_ref: monthRef,
         total_entries: validated.rows.length,
@@ -2690,11 +3171,11 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       type: "bank_xml_generated",
       entity_type: "bank_batch",
       entity_id: job.rows[0].id,
-      message: `Bank XML batch file generated successfully: ${fileName}`,
+      message: `Bank file generated successfully: ${fileName}`,
     });
 
     const payload = {
-      message: "Bank XML file generated successfully.",
+      message: "Bank file generated successfully.",
       batch_job: job.rows[0],
       export: exp.rows[0],
       download_url: `/api/v1/gym/bank-exports/${exp.rows[0].id}/download`,
@@ -2703,9 +3184,9 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
     res.setHeader("X-Gym-Message", payload.message);
 
     if (String(req.query?.download || "").toLowerCase() === "1" || String(req.query?.download || "").toLowerCase() === "true") {
-      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-      return res.send(xml);
+      return res.send(flatFile);
     }
 
     res.json(payload);
@@ -2838,7 +3319,10 @@ router.get("/bank-returns", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.get("/bank-exports", requireRole("admin", "super_admin", "hq_admin"), async (req, res, next) => {
+router.get("/bank-exports", (req, res, next) => {
+  if (!requireHqAccess(req, res)) return;
+  return next();
+}, async (req, res, next) => {
   try {
     await ensureSchema();
     const scope = requireBranchScope(req, res);
@@ -2862,7 +3346,10 @@ router.get("/bank-exports", requireRole("admin", "super_admin", "hq_admin"), asy
   } catch (e) { next(e); }
 });
 
-router.get("/bank-exports/:id/download", requireRole("admin", "super_admin", "hq_admin"), async (req, res, next) => {
+router.get("/bank-exports/:id/download", (req, res, next) => {
+  if (!requireHqAccess(req, res)) return;
+  return next();
+}, async (req, res, next) => {
   try {
     await ensureSchema();
     const scope = requireBranchScope(req, res);
@@ -2875,7 +3362,7 @@ router.get("/bank-exports/:id/download", requireRole("admin", "super_admin", "hq
       [req.params.id, scope.code]
     );
     if (!out.rows[0]) return res.status(404).json({ error: "Bank export not found" });
-    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${out.rows[0].file_name}"`);
     if (out.rows[0].minio_object_key) {
       const stream = await objectStream(out.rows[0].minio_object_key);
@@ -2885,7 +3372,10 @@ router.get("/bank-exports/:id/download", requireRole("admin", "super_admin", "hq
   } catch (e) { next(e); }
 });
 
-router.post("/bank-returns", requireRole("admin", "super_admin", "hq_admin"), async (req, res, next) => {
+router.post("/bank-returns", (req, res, next) => {
+  if (!requireHqAccess(req, res)) return;
+  return next();
+}, async (req, res, next) => {
   try {
     await ensureSchema();
     const code = String(tenantCode(req) || "");
@@ -3043,6 +3533,22 @@ async function updateCoach(req, res, next) {
 
 router.put("/coaches/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), updateCoach);
 router.patch("/coaches/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), updateCoach);
+router.delete("/coaches/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const params = [req.params.id, scope.code];
+    let where = "id=$1 AND code_entreprise=$2";
+    if (!scope.isHq && scope.branchId) {
+      params.push(scope.branchId);
+      where += ` AND branch_id=$${params.length}`;
+    }
+    const out = await query(`DELETE FROM gym_coaches WHERE ${where} RETURNING id`, params);
+    if (!out.rows[0]) return res.status(404).json({ error: "Coach not found" });
+    res.json({ message: "Coach deleted", id: out.rows[0].id });
+  } catch (e) { next(e); }
+});
 
 router.get("/classes", async (req, res, next) => {
   try {
@@ -3081,6 +3587,43 @@ router.post("/classes", requireRole("admin", "super_admin", "hq_admin", "gym_man
     await safeCreateNotification({ tenant_code: scope.code, type: "gym_class_added", entity_type: "class", entity_id: out.rows[0].id });
     if (b.coach_id) await safeCreateNotification({ tenant_code: scope.code, type: "trainer_assigned", entity_type: "class", entity_id: out.rows[0].id });
     res.status(201).json(out.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.put("/classes/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const b = req.body || {};
+    const branchId = scopedBranchId(scope, b.branch_id || null);
+    const out = await query(
+      `UPDATE gym_classes
+       SET branch_id=$1, coach_id=$2, class_name=$3, class_type=$4, capacity=COALESCE($5, capacity), starts_at=$6, ends_at=$7, status=$8
+       WHERE id=$9 AND code_entreprise=$10
+       RETURNING *`,
+      [branchId, b.coach_id || null, b.class_name, b.class_type || null, b.capacity || null, b.starts_at, b.ends_at || null, b.status || "scheduled", req.params.id, scope.code]
+    );
+    if (!out.rows[0]) return res.status(404).json({ error: "Class not found" });
+    res.json(out.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.patch("/classes/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
+  return next(new Error("Use PUT /classes/:id"));
+});
+
+router.delete("/classes/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const params = [req.params.id, scope.code];
+    const where = ["id=$1", "code_entreprise=$2"];
+    addBranchCondition(where, params, scope);
+    const out = await query(`DELETE FROM gym_classes WHERE ${where.join(" AND ")} RETURNING *`, params);
+    if (!out.rows[0]) return res.status(404).json({ error: "Class not found" });
+    res.json({ message: "Class deleted", id: out.rows[0].id });
   } catch (e) { next(e); }
 });
 

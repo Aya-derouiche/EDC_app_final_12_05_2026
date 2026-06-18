@@ -1,10 +1,7 @@
-﻿const env = require("./config/env");
+const env = require("./config/env");
 const app = require("./app");
-const { ensureBucket } = require("./config/minio");
 
 async function startServer(port) {
-  await ensureBucket();
-
   const server = app.listen(port, () => {
     console.log(`Server running on ${port}`);
   });

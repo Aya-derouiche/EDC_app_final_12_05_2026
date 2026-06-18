@@ -164,6 +164,11 @@ router.post("/upload-and-scan", upload.single("file"), async (req, res) => {
       scan_error: scanResult?.error || null,
     });
   } catch (err) {
+    if (err?.code === "MINIO_UNAVAILABLE" || err?.status === 503) {
+      console.error("Document storage unavailable:", err.message);
+      return res.status(503).json({ error: "Document storage service is temporarily unavailable", code: "MINIO_UNAVAILABLE" });
+    }
+
     console.error("Upload+scan error:", err.message);
     res.status(500).json({ error: err.message });
   }
