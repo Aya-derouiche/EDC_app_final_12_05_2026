@@ -277,6 +277,145 @@ function buildBankXml({ tenantCode, monthRef, generatedAt, generatedBy, rows }) 
   return [header, detailLines, authLines].filter(Boolean).join("\r");
 }
 
+function normalizeBankExportRow(row, index) {
+  return {
+    index: index + 1,
+    payment_id: row.payment_id || row.id || row.paymentId || row.subscription_id || index + 1,
+    subscription_id: row.subscription_id,
+    member_code: String(row.member_code || row.employee_id || row.subscription_id || index + 1),
+    full_name: String(row.full_name || ""),
+    employee_id: String(row.employee_id || ""),
+    cin: String(row.cin || ""),
+    bank_account: String(row.bank_account || ""),
+    plan_name: String(row.plan_name || "Standard"),
+    amount: Number(row.amount || 0),
+    due_date: row.due_date || "",
+    start_date: row.start_date || "",
+    end_date: row.end_date || "",
+    payment_status: row.payment_status || "",
+    workflow_status: row.workflow_status || "",
+    subscription_status: row.subscription_status || "",
+    contract_number: row.contract_number || `SD-${row.subscription_id || index + 1}`,
+    authorization_reference: row.authorization_reference || row.deduction_doc_ref || `AUTH-SALARY-${row.subscription_id || index + 1}`,
+    branch_name: row.branch_name || "",
+    validation_status: row.validation_status || "",
+  };
+}
+
+function buildSalaryDeductionBatchData({ tenantCode, monthRef, generatedAt, generatedBy, rows }) {
+  const normalizedRows = rows.map((row, index) => normalizeBankExportRow(row, index));
+  const totalAmount = normalizedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  return {
+    tenantCode,
+    monthRef,
+    generatedAt,
+    generatedBy,
+    rows: normalizedRows,
+    totalAmount,
+    totalCents: Math.round(Number(totalAmount || 0) * 100),
+    bankCode: String(process.env.GYM_BANK_CODE || "2500").trim() || "2500",
+    bankCentralCode: String(process.env.GYM_BANK_CENTRAL_CODE || "0127").trim() || "0127",
+    issuerCode: String(process.env.GYM_BANK_ISSUER_CODE || "25016").trim() || "25016",
+    authBankCode: String(process.env.GYM_AUTH_BANK_CODE || "2508").trim() || "2508",
+    authBranchCode: String(process.env.GYM_AUTH_BRANCH_CODE || "500000").trim() || "500000",
+    creditorName: String(process.env.GYM_CREDITOR_NAME || "La Sté Olympe Gym").trim() || "La Sté Olympe Gym",
+    supportDigits: digitsOnly(`${tenantCode}${monthRef || generatedAt}`).padEnd(14, "0").slice(0, 14),
+  };
+}
+
+function buildSalaryDeductionTxt(batch) {
+  const { tenantCode, monthRef, generatedAt, generatedBy, rows, totalCents, bankCode, bankCentralCode, issuerCode, authBankCode, authBranchCode, creditorName, supportDigits } = batch;
+  const supportReference = `P${supportDigits}`.slice(0, 15);
+  const dueDate = dueDateForMonth(monthRef, 5);
+  const dueDateYymmdd = formatYmd(dueDate).slice(2);
+  const generatedByName = userDisplayName(generatedBy);
+
+  const header = buildFixedLine(
+    fixedWidth("09", 2),
+    fixedDigits(bankCode, 4),
+    fixedDigits(bankCentralCode, 4),
+    fixedDigits(issuerCode, 5),
+    "0",
+    fixedWidth(`${supportDigits}20`, 16),
+    fixedWidth(`${dueDateYymmdd}${supportReference.slice(0, 10)}`, 16),
+    fixedWidth(`${fixedDigits(rows.length, 10)}000000`, 16),
+    fixedWidth(`${fixedDigits(totalCents, 12)}0000`, 16),
+    fixedWidth(`${fixedDigits(rows.length, 4)}${" ".repeat(12)}`, 16),
+    fixedWidth("", 64)
+  );
+
+  const detailLines = rows.map((row) => {
+    const accountDigits = digitsOnly(row.bank_account || "");
+    const firstNameChunk = fixedWidth(row.full_name || "", 10);
+    const secondNameChunk = fixedWidth((row.full_name || "").slice(10), 16);
+    const amountCents = Math.round(Number(row.amount || 0) * 100);
+    const referenceTail = `${row.member_code || row.index}`.slice(-2);
+    return buildFixedLine(
+      fixedWidth("02", 2),
+      fixedDigits(bankCode, 4),
+      fixedDigits(bankCentralCode, 4),
+      fixedDigits(issuerCode, 5),
+      "0",
+      fixedWidth(supportDigits.slice(0, 14) + referenceTail, 16),
+      fixedWidth(`${accountDigits.slice(0, 8).padEnd(8, "0")}${String(row.member_code || row.index).padStart(8, "0").slice(-8)}`, 16),
+      fixedWidth(`${accountDigits.slice(8, 16).padEnd(8, "0")}${digitsOnly(row.cin || "").slice(-8).padStart(8, "0")}`, 16),
+      fixedWidth(`${String(row.member_code || row.index).padStart(6, "0").slice(-6)}${firstNameChunk}`, 16),
+      fixedWidth(secondNameChunk, 16),
+      fixedWidth("", 16),
+      fixedWidth("".padStart(8, " "), 8),
+      fixedDigits(amountCents, 8),
+      fixedDigits(amountCents % 100, 2),
+      fixedWidth("", 30)
+    );
+  }).join("\r");
+
+  const footer = buildFixedLine(
+    fixedWidth("99", 2),
+    fixedDigits(bankCode, 4),
+    fixedDigits(bankCentralCode, 4),
+    fixedDigits(issuerCode, 5),
+    "0",
+    fixedWidth(supportDigits.slice(0, 14), 16),
+    fixedWidth("", 16),
+    fixedWidth(`${fixedDigits(rows.length, 10)}000000`, 16),
+    fixedWidth(`${fixedDigits(totalCents, 12)}0000`, 16),
+    fixedWidth("", 80)
+  );
+
+  return [
+    header,
+    detailLines,
+    footer,
+  ].filter(Boolean).join("\r\n");
+}
+
+function buildSalaryDeductionXml(batch) {
+  const { tenantCode, monthRef, generatedAt, rows } = batch;
+  const formatDueDateLabel = (value) => {
+    const raw = String(value || "").slice(0, 10);
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return escapeXml(raw);
+    return parsed.toDateString().slice(0, 10);
+  };
+  const body = rows.map((row) => `  <Deduction>
+    <PaymentId>${escapeXml(String(row.payment_id || ""))}</PaymentId>
+    <SubscriptionId>${escapeXml(String(row.subscription_id || ""))}</SubscriptionId>
+    <EmployeeId>${escapeXml(row.employee_id || row.member_code || "")}</EmployeeId>
+    <MemberName>${escapeXml(row.full_name || "")}</MemberName>
+    <CIN>${escapeXml(row.cin || "")}</CIN>
+    <BankAccount>${escapeXml(row.bank_account || "")}</BankAccount>
+    <Plan>${escapeXml(row.plan_name || "Standard")}</Plan>
+    <Amount currency="DT">${Number(row.amount || 0).toFixed(3)}</Amount>
+    <DueDate>${formatDueDateLabel(row.due_date || monthRef || generatedAt)}</DueDate>
+    <Status>${escapeXml(row.payment_status || row.subscription_status || row.workflow_status || "pending")}</Status>
+  </Deduction>`).join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<SalaryDeductions tenant="${escapeXml(tenantCode)}" month="${escapeXml(monthRef)}" generatedAt="${escapeXml(generatedAt)}">
+${body}
+</SalaryDeductions>`;
+}
+
 function buildSalaryDeductionAuthorizationHtml(row) {
   const today = new Date();
   const companyName = row.company_name || row.branch_company_name || "La Sté Olympe Gym";
@@ -370,7 +509,7 @@ function buildSalaryDeductionAuthorizationHtml(row) {
         <div class="block">
           <div class="block-title">Autorisation</div>
           <div class="statement">
-            Je soussigné(e), <strong>${blank(row.full_name, "")}</strong>, autorise <strong>${escapeHtml(companyName)}</strong> à prélever
+            Je soussigné(e), <strong></strong>, autorise <strong>${escapeHtml(companyName)}</strong> à prélever
             chaque mois sur mon compte bancaire le montant de <span class="amount-line">${escapeHtml(normalizeMoney(row.amount))}</span> DT,
             à compter du <strong>${escapeHtml(formatMonthYear(row.start_date))}</strong> jusqu'au <strong>${escapeHtml(formatMonthYear(row.end_date))}</strong>.
           </div>
@@ -428,7 +567,7 @@ function buildSalaryDeductionAuthorizationHtml(row) {
   `;
 }
 
-async function buildSalaryDeductionAuthorizationHtmlPaper(row) {
+function buildSalaryDeductionAuthorizationHtmlPaper(row) {
   const today = new Date();
   const companyName = row.company_name || row.branch_company_name || "La Sté Olympe Gym";
   const branchName = row.branch_name || "Gym";
@@ -463,10 +602,10 @@ async function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         color: #4b5563;
       }
       .hand {
-        font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
-        color: #5572e0;
-        font-size: 18px;
-        line-height: 1;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #111827;
+        font-size: 12.5px;
+        line-height: 1.3;
         white-space: nowrap;
       }
       .line {
@@ -475,6 +614,7 @@ async function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         min-height: 18px;
         padding: 0 5px 1px;
         color: #111827;
+        font-family: Arial, Helvetica, sans-serif;
       }
       .body { font-size: 11.1px; line-height: 1.72; }
       .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; margin: 5px 0; }
@@ -489,9 +629,9 @@ async function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
-        color: #5572e0;
-        font-size: 17px;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #111827;
+        font-size: 13px;
       }
       .paragraph { margin: 6px 0; }
       .choice-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 10px; }
@@ -512,9 +652,9 @@ async function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         min-width: 60px;
         text-align: center;
         border-bottom: 1px solid #b9c2ce;
-        font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
-        color: #5572e0;
-        font-size: 18px;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #111827;
+        font-size: 12.5px;
         padding: 0 4px;
       }
       .signature-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 14px; }
@@ -547,7 +687,7 @@ async function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         <div class="meta">
           <div class="meta-row"><span class="meta-label">contrat N°</span><span class="meta-value">${escapeHtml(contractNumber)}</span></div>
           <div class="meta-row"><span class="meta-label">Salle</span><span class="meta-value">${escapeHtml(branchName)}</span></div>
-          <div class="meta-row"><span class="meta-label">commercial</span><span class="meta-value">${escapeHtml(row.commercial_name || row.sales_person || row.full_name || "")}</span></div>
+          <div class="meta-row"><span class="meta-label">commercial</span><span class="meta-value"></span></div>
         </div>
       </div>
 
@@ -661,7 +801,7 @@ function userTenantCode(req) {
     null;
 }
 
-const hqRoles = new Set(["admin", "super_admin", "superadmin", "hq_admin", "hqadmin", "siege", "siège"]);
+const hqRoles = new Set(["admin", "super_admin", "superadmin", "hq_admin", "hqadmin", "siege", "siège", "gym_manager"]);
 
 function normalizeRole(role) {
   return String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -789,7 +929,7 @@ const notificationTemplates = {
     severity: "info",
     title: "Nouvelle demande siege",
     message: "A new salary deduction request is awaiting validation.",
-    audience: "hq_admin",
+    audience: "gym_manager,hq_admin",
   },
   authorization_form_generated: {
     category: "hq",
@@ -803,14 +943,14 @@ const notificationTemplates = {
     severity: "success",
     title: "Fichier XML genere",
     message: "Bank XML batch file generated successfully.",
-    audience: "hq_admin,comptable",
+    audience: "gym_manager,hq_admin,comptable",
   },
   bank_xml_failed: {
     category: "bank",
     severity: "danger",
     title: "Erreur fichier bancaire",
     message: "Bank XML file generation failed.",
-    audience: "hq_admin,comptable",
+    audience: "gym_manager,hq_admin,comptable",
   },
   gym_class_added: {
     category: "operations",
@@ -859,14 +999,14 @@ const notificationTemplates = {
     severity: "danger",
     title: "Connexion suspecte",
     message: "Suspicious login detected.",
-    audience: "admin,hq_admin",
+    audience: "gym_manager,admin,hq_admin",
   },
   employee_account_created: {
     category: "security",
     severity: "info",
     title: "Nouveau compte cree",
     message: "A new employee account has been created.",
-    audience: "admin,hq_admin",
+    audience: "gym_manager,admin,hq_admin",
   },
 };
 
@@ -1096,6 +1236,7 @@ async function runEnsureSchema() {
       id BIGSERIAL PRIMARY KEY,
       batch_job_id BIGINT NOT NULL REFERENCES gym_batch_jobs(id) ON DELETE CASCADE,
       file_name VARCHAR(255) NOT NULL,
+      file_format VARCHAR(10) NOT NULL DEFAULT 'xml' CHECK (file_format IN ('xml','txt')),
       xml_content TEXT NOT NULL,
       minio_bucket VARCHAR(120),
       minio_object_key TEXT,
@@ -1385,6 +1526,7 @@ async function runEnsureSchema() {
     `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS authorization_pdf_path TEXT`,
     `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS hq_comment TEXT`,
     `ALTER TABLE gym_notifications ADD COLUMN IF NOT EXISTS branch_id BIGINT REFERENCES gym_branches(id) ON DELETE SET NULL`,
+    `ALTER TABLE gym_salary_deduction_exports ADD COLUMN IF NOT EXISTS file_format VARCHAR(10) NOT NULL DEFAULT 'xml'`,
     `ALTER TABLE gym_salary_deduction_exports ADD COLUMN IF NOT EXISTS minio_bucket VARCHAR(120)`,
     `ALTER TABLE gym_salary_deduction_exports ADD COLUMN IF NOT EXISTS minio_object_key TEXT`,
     `ALTER TABLE gym_contracts ADD COLUMN IF NOT EXISTS validated_by BIGINT`,
@@ -1877,7 +2019,7 @@ router.post("/notifications/scan-expirations", requireRole("admin", "super_admin
   } catch (e) { next(e); }
 });
 
-router.post("/bootstrap", requireRole("admin", "super_admin", "hq_admin"), async (_req, res, next) => {
+router.post("/bootstrap", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (_req, res, next) => {
   try {
     await ensureSchema();
     res.json({ message: "Gym schema ready" });
@@ -3071,15 +3213,21 @@ router.post("/payments/:id/attempt", requireRole("admin", "super_admin", "hq_adm
   } catch (e) { next(e); }
 });
 
-router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin"), async (req, res, next) => {
+router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin", "gym_manager"), async (req, res, next) => {
   try {
     await ensureSchema();
     const monthRef = String(req.body?.month_ref || "").trim();
     if (!monthRef) return res.status(400).json({ error: "month_ref is required" });
+    const selectedSubscriptionIds = Array.isArray(req.body?.selected_subscription_ids)
+      ? req.body.selected_subscription_ids.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+      : String(req.body?.selected_subscription_ids || "")
+          .split(",")
+          .map((value) => Number(value.trim()))
+          .filter((value) => Number.isFinite(value));
     const scope = requireBranchScope(req, res);
     if (!scope) return;
     const code = scope.code;
-    const params = [code];
+    const params = [code, monthRef];
     const where = [
       "s.code_entreprise=$1",
       "s.payment_method='salary_deduction'",
@@ -3090,39 +3238,81 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
     ];
     addBranchCondition(where, params, scope, "s");
 
-    const validated = await query(
-      `SELECT s.id AS subscription_id, s.amount, s.due_day, s.start_date, s.end_date, s.workflow_status, s.status AS subscription_status,
-              s.deduction_doc_ref,
-              m.full_name, m.member_code, m.employee_id, m.cin, m.bank_account,
-              c.contract_number, c.authorization_reference, c.validation_status,
-              b.branch_name
-       FROM gym_subscriptions s
-       JOIN gym_members m ON m.id=s.member_id
-       JOIN gym_contracts c ON c.subscription_id=s.id AND c.tenant_code=s.code_entreprise
-       JOIN hq_validation_queue q ON q.subscription_id=s.id AND q.tenant_code=s.code_entreprise
-       LEFT JOIN gym_branches b ON b.id=s.branch_id
-       WHERE ${where.join(" AND ")}
-       ORDER BY s.id ASC`,
-      params
-    );
+    const validated = selectedSubscriptionIds.length
+      ? await query(
+          `SELECT COALESCE(p.id, s.id) AS payment_id,
+                  p.due_date AS due_date,
+                  p.status AS payment_status,
+                  s.id AS subscription_id, s.plan_name, s.amount, s.due_day, s.start_date, s.end_date, s.workflow_status, s.status AS subscription_status,
+                  s.deduction_doc_ref,
+                  m.full_name, m.member_code, m.employee_id, m.cin, m.bank_account,
+                  c.contract_number, c.authorization_reference, c.validation_status,
+                  b.branch_name
+           FROM gym_subscriptions s
+           JOIN gym_members m ON m.id=s.member_id
+           LEFT JOIN gym_payments p ON p.subscription_id=s.id AND p.month_ref=$2
+           LEFT JOIN gym_contracts c ON c.subscription_id=s.id AND c.tenant_code=s.code_entreprise
+           LEFT JOIN hq_validation_queue q ON q.subscription_id=s.id AND q.tenant_code=s.code_entreprise
+           LEFT JOIN gym_branches b ON b.id=s.branch_id
+           WHERE s.code_entreprise=$1
+             AND s.payment_method='salary_deduction'
+             AND s.status='active'
+             ${scope.branchId ? "AND s.branch_id=$3" : ""}
+             AND s.id = ANY($${scope.branchId ? 4 : 3}::int[])
+           ORDER BY s.id ASC`,
+          scope.branchId ? [code, monthRef, scope.branchId, selectedSubscriptionIds] : [code, monthRef, selectedSubscriptionIds]
+        )
+      : await query(
+          `SELECT COALESCE(p.id, s.id) AS payment_id,
+                  p.due_date AS due_date,
+                  p.status AS payment_status,
+                  s.id AS subscription_id, s.plan_name, s.amount, s.due_day, s.start_date, s.end_date, s.workflow_status, s.status AS subscription_status,
+                  s.deduction_doc_ref,
+                  m.full_name, m.member_code, m.employee_id, m.cin, m.bank_account,
+                  c.contract_number, c.authorization_reference, c.validation_status,
+                  b.branch_name
+           FROM gym_subscriptions s
+           JOIN gym_members m ON m.id=s.member_id
+           LEFT JOIN gym_payments p ON p.subscription_id=s.id AND p.month_ref=$2
+           JOIN gym_contracts c ON c.subscription_id=s.id AND c.tenant_code=s.code_entreprise
+           JOIN hq_validation_queue q ON q.subscription_id=s.id AND q.tenant_code=s.code_entreprise
+           LEFT JOIN gym_branches b ON b.id=s.branch_id
+           WHERE ${where.join(" AND ")}
+           ORDER BY s.id ASC`,
+          params
+        );
 
     if (!validated.rows.length) {
       return res.status(409).json({
-        error: "No validated salary deduction requests found",
-        message: "Bank file generation is blocked until at least one salary deduction subscription is approved by HQ and active.",
+        error: selectedSubscriptionIds.length
+          ? "No selected salary deduction requests found"
+          : "No validated salary deduction requests found",
+        message: selectedSubscriptionIds.length
+          ? "Bank file generation is blocked until the selected subscriptions are available."
+          : "Bank file generation is blocked until at least one salary deduction subscription is approved by HQ and active.",
       });
     }
 
+    await query(
+      `DELETE FROM gym_batch_jobs
+       WHERE code_entreprise=$1 AND month_ref=$2`,
+      [code, monthRef]
+    );
+
     const generatedAt = new Date().toISOString();
-    const fileName = `salary_deduction_${code}_${monthRef}.txt`;
-    const flatFile = buildBankXml({
+    const batch = buildSalaryDeductionBatchData({
       tenantCode: code,
       monthRef,
       generatedAt,
       generatedBy: req.user || {},
       rows: validated.rows,
     });
-    const fileBuffer = Buffer.from(flatFile, "utf8");
+    const txtFileName = `salary_deduction_${code}_${monthRef}.txt`;
+    const xmlFileName = `salary_deduction_${code}_${monthRef}.xml`;
+    const txtContent = buildSalaryDeductionTxt(batch);
+    const xmlContent = buildSalaryDeductionXml(batch);
+    const txtBuffer = Buffer.from(txtContent, "utf8");
+    const xmlBuffer = Buffer.from(xmlContent, "utf8");
 
     const job = await query(
       `INSERT INTO gym_batch_jobs (code_entreprise, month_ref, status, created_by, processed_by, processed_at)
@@ -3131,6 +3321,18 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       [code, monthRef, req.user?.id || null]
     );
 
+    const savedTxt = await trySaveGymGeneratedFile({
+      req,
+      tenantCode: code,
+      branchId: scope.branchId || null,
+      entityType: "bank_batch",
+      entityId: job.rows[0].id,
+      category: "bank_txt",
+      filename: txtFileName,
+      mimeType: "text/plain; charset=utf-8",
+      buffer: txtBuffer,
+    });
+
     const savedXml = await trySaveGymGeneratedFile({
       req,
       tenantCode: code,
@@ -3138,16 +3340,23 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       entityType: "bank_batch",
       entityId: job.rows[0].id,
       category: "bank_xml",
-      filename: fileName,
-      mimeType: "text/plain; charset=utf-8",
-      buffer: fileBuffer,
+      filename: xmlFileName,
+      mimeType: "application/xml",
+      buffer: xmlBuffer,
     });
 
-    const exp = await query(
-      `INSERT INTO gym_salary_deduction_exports (batch_job_id, file_name, xml_content, minio_bucket, minio_object_key)
-       VALUES ($1,$2,$3,$4,$5)
+    const expTxt = await query(
+      `INSERT INTO gym_salary_deduction_exports (batch_job_id, file_name, file_format, xml_content, minio_bucket, minio_object_key)
+       VALUES ($1,$2,$3,$4,$5,$6)
        RETURNING *`,
-      [job.rows[0].id, fileName, flatFile, savedXml?.minio_bucket || null, savedXml?.minio_object_key || null]
+      [job.rows[0].id, txtFileName, "txt", txtContent, savedTxt?.minio_bucket || null, savedTxt?.minio_object_key || null]
+    );
+
+    const expXml = await query(
+      `INSERT INTO gym_salary_deduction_exports (batch_job_id, file_name, file_format, xml_content, minio_bucket, minio_object_key)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING *`,
+      [job.rows[0].id, xmlFileName, "xml", xmlContent, savedXml?.minio_bucket || null, savedXml?.minio_object_key || null]
     );
 
     await logGenerationOperation({
@@ -3157,12 +3366,16 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       operationType: "salary_deduction_bank_xml",
       entityType: "bank_batch",
       entityId: job.rows[0].id,
-      fileName,
-      mimeType: "text/plain; charset=utf-8",
+      fileName: `${txtFileName} | ${xmlFileName}`,
+      mimeType: "application/xml,text/plain; charset=utf-8",
       details: {
         month_ref: monthRef,
         total_entries: validated.rows.length,
-        total_amount: validated.rows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+        total_amount: batch.totalAmount,
+        exports: [
+          { file_name: txtFileName, file_format: "txt" },
+          { file_name: xmlFileName, file_format: "xml" },
+        ],
       },
     });
 
@@ -3171,22 +3384,33 @@ router.post("/payments/batch/xml", requireRole("admin", "super_admin", "hq_admin
       type: "bank_xml_generated",
       entity_type: "bank_batch",
       entity_id: job.rows[0].id,
-      message: `Bank file generated successfully: ${fileName}`,
+      message: `Bank files generated successfully: ${txtFileName} and ${xmlFileName}`,
     });
 
     const payload = {
-      message: "Bank file generated successfully.",
+      message: "Bank files generated successfully.",
       batch_job: job.rows[0],
-      export: exp.rows[0],
-      download_url: `/api/v1/gym/bank-exports/${exp.rows[0].id}/download`,
+      exports: {
+        txt: expTxt.rows[0],
+        xml: expXml.rows[0],
+      },
+      download_urls: {
+        txt: `/api/v1/gym/bank-exports/${expTxt.rows[0].id}/download`,
+        xml: `/api/v1/gym/bank-exports/${expXml.rows[0].id}/download`,
+      },
     };
 
     res.setHeader("X-Gym-Message", payload.message);
 
+    const requestedFormat = String(req.query?.format || req.body?.format || "").toLowerCase();
     if (String(req.query?.download || "").toLowerCase() === "1" || String(req.query?.download || "").toLowerCase() === "true") {
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-      return res.send(flatFile);
+      const isXml = requestedFormat === "xml";
+      const downloadName = isXml ? xmlFileName : txtFileName;
+      const downloadContent = isXml ? xmlContent : txtContent;
+      const downloadType = isXml ? "application/xml; charset=utf-8" : "text/plain; charset=utf-8";
+      res.setHeader("Content-Type", downloadType);
+      res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+      return res.send(downloadContent);
     }
 
     res.json(payload);
@@ -3362,7 +3586,8 @@ router.get("/bank-exports/:id/download", (req, res, next) => {
       [req.params.id, scope.code]
     );
     if (!out.rows[0]) return res.status(404).json({ error: "Bank export not found" });
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    const contentType = out.rows[0].file_format === "xml" ? "application/xml; charset=utf-8" : "text/plain; charset=utf-8";
+    res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${out.rows[0].file_name}"`);
     if (out.rows[0].minio_object_key) {
       const stream = await objectStream(out.rows[0].minio_object_key);

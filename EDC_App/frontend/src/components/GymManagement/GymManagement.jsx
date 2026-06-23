@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
@@ -24,10 +24,10 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import gymApi from "../../api/gymApi";
 import { Alert, Spinner } from "../UI.jsx";
 
-// ── Constants ─────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────
 const SIDEBAR_WIDTH = 260;
 
-// ── Design tokens ─────────────────────────────────────────────
+// ── Design tokens ─────────────────────────────────────────────────
 const TOKEN = {
   primary: "#27ae60",
   primaryDark: "#1e8449",
@@ -53,7 +53,7 @@ const TOKEN = {
   topbarHeight: 64,
 };
 
-// ── Shared styles ─────────────────────────────────────────────
+// ── Shared styles ────────────────────────────────────────────────
 const cardStyle = {
   background: TOKEN.bgCard,
   border: `1px solid ${TOKEN.border}`,
@@ -157,7 +157,7 @@ const modules = [
   { id: "hq", label: "Validation siège", icon: SecurityIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
   { id: "authorizations", label: "Autorisations", icon: AccountBalanceIcon },
   { id: "payments", label: "Paiements", icon: PaymentsIcon },
-  { id: "bankReturns", label: "Retours bancaires", icon: ReplayIcon, roles: ["admin", "super_admin", "hq_admin"] },
+  { id: "bankReturns", label: "Retours bancaires", icon: ReplayIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
   { id: "classes", label: "Classes / Cours", icon: FitnessCenterIcon },
   { id: "coaches", label: "Coachs", icon: GroupsIcon },
   { id: "attendance", label: "Présences", icon: HowToRegIcon },
@@ -166,7 +166,7 @@ const modules = [
   { id: "notifications", label: "Notifications", icon: NotificationsNoneIcon },
   { id: "files", label: "Images & Documents", icon: AttachFileIcon },
   { id: "access", label: "Gestion des accès", icon: SecurityIcon },
-  { id: "settings", label: "Paramètres", icon: SettingsIcon, roles: ["admin", "super_admin", "hq_admin"] },
+  { id: "settings", label: "Paramètres", icon: SettingsIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
 ];
 
 const roleAliases = {
@@ -238,7 +238,7 @@ function roleAllowed(currentRole, allowedRoles) {
   return allowedRoles.includes(normalizeRole(currentRole));
 }
 
-// ── DataTable ─────────────────────────────────────────────────
+// ── DataTable ────────────────────────────────────────────────────
 function DataTable({ columns, rows, empty = "Aucune donnée." }) {
   if (!rows?.length) {
     return (
@@ -287,7 +287,7 @@ function TableRow({ columns, row }) {
   );
 }
 
-// ── Field ─────────────────────────────────────────────────────
+// ── Field ────────────────────────────────────────────────────────
 function Field({ as = "input", label, hint, children, ...props }) {
   const [focused, setFocused] = useState(false);
   const focusStyle = focused ? { border: `1.5px solid ${TOKEN.primary}`, background: "#fff" } : {};
@@ -324,7 +324,7 @@ function Field({ as = "input", label, hint, children, ...props }) {
   );
 }
 
-// ── StatCard ──────────────────────────────────────────────────
+// ── StatCard ─────────────────────────────────────────────────────
 function StatCard({ label, value, accent = false }) {
   return (
     <div style={{ background: accent ? TOKEN.primary : TOKEN.bgCard, border: `1px solid ${accent ? TOKEN.primary : TOKEN.border}`, borderRadius: 14, boxShadow: accent ? "0 4px 16px rgba(39,174,96,0.2)" : "0 1px 4px rgba(0,0,0,0.07)", padding: "18px 20px" }}>
@@ -334,7 +334,7 @@ function StatCard({ label, value, accent = false }) {
   );
 }
 
-// ── Btn ───────────────────────────────────────────────────────
+// ── Btn ──────────────────────────────────────────────────────────
 function Btn({ children, onClick, disabled, variant = "primary", style: extraStyle = {}, type = "button" }) {
   const variants = {
     primary: { background: "#1e9e50", boxShadow: "0 3px 10px rgba(30,158,80,0.45)" },
@@ -369,7 +369,7 @@ function Btn({ children, onClick, disabled, variant = "primary", style: extraSty
   );
 }
 
-// ── SectionTitle ──────────────────────────────────────────────
+// ── SectionTitle ─────────────────────────────────────────────────
 function SectionTitle({ children, action }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -379,11 +379,17 @@ function SectionTitle({ children, action }) {
   );
 }
 
-// ══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 //  MAIN COMPONENT
-// ══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 const GymManagement = () => {
-  const [activeModule, setActiveModule] = useState("dashboard");
+  const [activeModule, setActiveModule] = useState(() => {
+    try {
+      return localStorage.getItem("active_module") || "dashboard";
+    } catch (_e) {
+      return "dashboard";
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -401,6 +407,9 @@ const GymManagement = () => {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedCoach, setSelectedCoach] = useState(null);
   const [selectedGymFile, setSelectedGymFile] = useState(null);
+  const [selectedBankSubscriptionIds, setSelectedBankSubscriptionIds] = useState([]);
+  const [showBankSelection, setShowBankSelection] = useState(false);
+  const [showBankDetails, setShowBankDetails] = useState(false);
 
   const [forms, setForms] = useState({
     branch: { branch_code: "", branch_name: "", city: "", hotel_spa_integrated: false },
@@ -440,27 +449,94 @@ const GymManagement = () => {
     window.location.href = "/";
   };
 
-  async function loadData() {
+  async function loadData({ moduleName = activeModule } = {}) {
     try {
       setLoading(true);
       setError("");
-      const endpoints = {
-        dashboard: "/dashboard", statistics: "/statistics", branches: "/branches",
-        members: "/members", subscriptions: "/subscriptions",
-        contracts: "/contract-ai/contracts", contractTemplates: "/contract-ai/templates",
-        authorizations: "/authorizations",
-        payments: "/payments",
-        classes: "/classes", coaches: "/coaches", attendance: "/attendance", cash: "/cash",
-        notifications: "/notifications?limit=50", settings: "/settings", accessEvents: "/access-events",
+      const alwaysEndpoints = {
+        branches: "/branches",
+        notifications: "/notifications?limit=20",
+        settings: "/settings",
       };
-      if (hqAccessAllowed) {
-        endpoints.hqValidations = "/hq/validations?status=pending";
-        endpoints.bankReturns = "/bank-returns";
-        endpoints.bankExports = "/bank-exports";
-      }
-      if (!roleAllowed(currentRole, ["admin", "super_admin", "hq_admin", "gym_manager"])) {
-        delete endpoints.hqValidations;
-      }
+      const moduleEndpoints = {
+        dashboard: {
+          dashboard: "/dashboard",
+          statistics: "/statistics",
+          hqValidations: hqAccessAllowed ? "/hq/validations?status=pending" : null,
+        },
+        branches: {},
+        members: {
+          members: "/members",
+        },
+        subscriptions: {
+          members: "/members",
+          subscriptions: "/subscriptions",
+        },
+        contracts: {
+          members: "/members",
+          subscriptions: "/subscriptions",
+          contracts: "/contract-ai/contracts",
+          contractTemplates: "/contract-ai/templates",
+        },
+        hq: {
+          hqValidations: hqAccessAllowed ? "/hq/validations?status=pending" : null,
+        },
+        authorizations: {
+          members: "/members",
+          subscriptions: "/subscriptions",
+          authorizations: "/authorizations",
+        },
+        payments: {
+          members: "/members",
+          subscriptions: "/subscriptions",
+          payments: "/payments",
+        },
+        bankReturns: {
+          payments: "/payments",
+          bankReturns: "/bank-returns",
+          authorizations: "/authorizations",
+          bankExports: hqAccessAllowed ? "/bank-exports" : null,
+        },
+        classes: {
+          coaches: "/coaches",
+          classes: "/classes",
+        },
+        coaches: {
+          coaches: "/coaches",
+        },
+        attendance: {
+          members: "/members",
+          classes: "/classes",
+          attendance: "/attendance",
+        },
+        cash: {
+          members: "/members",
+          cash: "/cash",
+        },
+        statistics: {
+          statistics: "/statistics",
+        },
+        notifications: {
+          notifications: "/notifications?limit=20",
+        },
+        files: {},
+        access: {
+          members: "/members",
+          accessEvents: "/access-events",
+        },
+        settings: {
+          settings: "/settings",
+        },
+      };
+
+      const endpoints = {
+        ...alwaysEndpoints,
+        ...(moduleEndpoints[moduleName] || {}),
+      };
+      Object.keys(endpoints).forEach((key) => {
+        if (!endpoints[key]) delete endpoints[key];
+      });
+
       const entries = await Promise.all(
         Object.entries(endpoints).map(async ([key, url]) => {
           try {
@@ -476,7 +552,7 @@ const GymManagement = () => {
         })
       );
       const next = Object.fromEntries(entries);
-      setData({ ...endpointFallbacks, ...next });
+      setData((prev) => ({ ...prev, ...next }));
       if (next.settings) setForms((prev) => ({ ...prev, settings: next.settings }));
     } catch (e) {
       setError(e?.response?.data?.error || "Erreur lors du chargement Gym.");
@@ -485,7 +561,15 @@ const GymManagement = () => {
     }
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("active_module", activeModule);
+    } catch (_e) {}
+  }, [activeModule]);
+
+  useEffect(() => {
+    loadData({ moduleName: activeModule });
+  }, [activeModule]);
 
   useEffect(() => {
     if (!visibleModules.some((mod) => mod.id === activeModule)) setActiveModule("dashboard");
@@ -644,6 +728,19 @@ const GymManagement = () => {
   const createCash = (e) => { e.preventDefault(); runAction(() => gymApi.post("/cash", { ...forms.cash, amount: Number(forms.cash.amount), member_id: forms.cash.member_id ? Number(forms.cash.member_id) : null, branch_id: forms.cash.branch_id ? Number(forms.cash.branch_id) : null })); };
   const registerPaymentAttempt = (e) => { e.preventDefault(); runAction(() => gymApi.post(`/payments/${forms.paymentAttempt.payment_id}/attempt`, { outcome: forms.paymentAttempt.outcome, failure_reason: forms.paymentAttempt.failure_reason || null })); };
   const importBankReturn = (e) => { e.preventDefault(); runAction(() => gymApi.post("/bank-returns", { ...forms.bankReturn, payment_id: forms.bankReturn.payment_id ? Number(forms.bankReturn.payment_id) : null })); };
+  const toggleBankSubscriptionSelection = (subscriptionId) => {
+    const id = Number(subscriptionId);
+    setSelectedBankSubscriptionIds((prev) => (
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    ));
+  };
+  const selectAllBankSubscriptions = () => {
+    const ids = (data.authorizations || [])
+      .map((item) => Number(item.subscription_id || item.id))
+      .filter((id) => Number.isFinite(id));
+    setSelectedBankSubscriptionIds(ids);
+  };
+  const clearBankSubscriptionSelection = () => setSelectedBankSubscriptionIds([]);
   const uploadGymDocument = (e) => {
     e.preventDefault();
     if (!selectedGymFile) { setError("Choisis un fichier avant l'upload."); return; }
@@ -675,8 +772,10 @@ const GymManagement = () => {
     try {
       setError("");
       const res = await gymApi.get(`/bank-exports/${exportItem.id}/download`, { responseType: "blob" });
-      const url = URL.createObjectURL(new Blob([res.data], { type: "application/xml" }));
-      const link = document.createElement("a"); link.href = url; link.download = exportItem.file_name || "salary_deduction.xml";
+      const mimeType = exportItem.file_format === "txt" ? "text/plain" : "application/xml";
+      const defaultName = exportItem.file_format === "txt" ? "salary_deduction.txt" : "salary_deduction.xml";
+      const url = URL.createObjectURL(new Blob([res.data], { type: mimeType }));
+      const link = document.createElement("a"); link.href = url; link.download = exportItem.file_name || defaultName;
       document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
     } catch (err) { setError(err?.response?.data?.error || "Téléchargement XML impossible."); }
   };
@@ -737,14 +836,45 @@ const GymManagement = () => {
   const deleteTemplate = (id) => runAction(() => gymApi.delete(`/contract-ai/templates/${id}`));
   const saveSettings = (e) => { e.preventDefault(); runAction(() => gymApi.put("/settings", { ...forms.settings, default_due_day: Number(forms.settings.default_due_day), occupancy_limit: Number(forms.settings.occupancy_limit), renewal_warning_days: Number(forms.settings.renewal_warning_days) })); };
   const processMonth = () => { const month_ref = `${new Date().toISOString().slice(0, 7)}-01`; runAction(() => gymApi.post("/payments/process-month", { month_ref })); };
-  const generateXml = () => { const month_ref = `${new Date().toISOString().slice(0, 7)}-01`; runAction(() => gymApi.post("/payments/batch/xml", { month_ref })); };
+  const generateBankExport = async (format) => {
+    try {
+      setError("");
+      const selectedIds = selectedBankSubscriptionIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+      if (!selectedIds.length) {
+        setError("Selectionne au moins un abonne.");
+        return;
+      }
+      const month_ref = `${new Date().toISOString().slice(0, 7)}-01`;
+      const res = await gymApi.post(
+        `/payments/batch/xml?download=1&format=${format}`,
+        { month_ref, selected_subscription_ids: selectedIds },
+        { responseType: "blob" }
+      );
+      const isTxt = format === "txt";
+      const mimeType = isTxt ? "text/plain" : "application/xml";
+      const defaultName = isTxt ? "salary_deduction.txt" : "salary_deduction.xml";
+      const url = URL.createObjectURL(new Blob([res.data], { type: mimeType }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = defaultName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      await loadData();
+    } catch (err) {
+      setError(err?.response?.data?.error || "Téléchargement impossible.");
+    }
+  };
   const markNotificationRead = (id) => runAction(() => gymApi.patch(`/notifications/${id}/read`));
   const scanExpirations = () => {
     if (!canScanNotifications) { setError("Action réservée aux rôles admin, siège, manager ou comptable."); return; }
     runAction(() => gymApi.post("/notifications/scan-expirations"));
   };
 
-  // ── Module renderers ───────────────────────────────────────
+  // ── Module renderers ────────────────────────────────────────
   const renderDashboard = () => {
     const d = data.dashboard || {};
     const stats = data.statistics || {};
@@ -1092,11 +1222,47 @@ const GymManagement = () => {
         <Btn type="submit">Importer retour</Btn>
       </form>
       <div style={cardStyle}>
-        <SectionTitle action={<Btn onClick={generateXml}>Générer XML</Btn>}>Retours bancaires</SectionTitle>
-        <DataTable columns={[{ key: "bank_name", label: "Banque" }, { key: "result_status", label: "Résultat" }, { key: "failure_reason", label: "Motif" }, { key: "created_at", label: "Date", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") }]} rows={data.bankReturns} />
-        <h4 style={{ margin: "20px 0 10px", fontSize: 14, fontWeight: 700, color: TOKEN.textPrimary }}>Exports prélèvement salaire</h4>
-        <DataTable empty="Aucun export bancaire." columns={[{ key: "file_name", label: "Fichier" }, { key: "month_ref", label: "Mois", render: (r) => String(r.month_ref || "").slice(0, 10) }, { key: "batch_status", label: "Statut batch" }, { key: "download", label: "XML", render: (r) => <Btn onClick={() => downloadBankExport(r)} variant="teal" style={{ padding: "7px 10px" }}>Télécharger</Btn> }, { key: "created_at", label: "Créé le", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") }]} rows={data.bankExports} />
+        <SectionTitle>Retours bancaires</SectionTitle>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <Btn onClick={() => generateBankExport("txt")}>Générer TXT</Btn>
+          <Btn onClick={() => generateBankExport("xml")}>Générer XML</Btn>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 12 }}>
+            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: TOKEN.textPrimary }}>Sélection des abonnés</h4>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: TOKEN.textMuted }}>{selectedBankSubscriptionIds.length} sélectionné(s)</span>
+              <Btn onClick={selectAllBankSubscriptions} variant="teal">Select all</Btn>
+              <Btn onClick={clearBankSubscriptionSelection} variant="teal">Clear</Btn>
+            </div>
+          </div>
+          <DataTable
+            empty="Aucun abonné disponible."
+            columns={[
+              { key: "select", label: "Select", render: (r) => <input type="checkbox" checked={selectedBankSubscriptionIds.includes(Number(r.subscription_id || r.id))} onChange={() => toggleBankSubscriptionSelection(r.subscription_id || r.id)} /> },
+              { key: "member", label: "Nom", render: (r) => `${r.member_code || ""}${r.member_code ? " - " : ""}${r.full_name || ""}` },
+              { key: "employee_id", label: "Employé" },
+              { key: "bank_account", label: "Compte" },
+              { key: "amount", label: "Montant", render: (r) => `${Number(r.amount || 0).toFixed(3)} DT` },
+              { key: "validation_status", label: "Statut" },
+            ]}
+            rows={data.authorizations}
+          />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <Btn onClick={() => setShowBankDetails((v) => !v)}style={{ backgroundColor: "#27ae60" }}>{showBankDetails ? "Voir moins" : "Voir plus"}</Btn>
+             </div>
+
+        </div>
+        {showBankDetails ? (
+          <>
+            <DataTable columns={[{ key: "bank_name", label: "Banque" }, { key: "result_status", label: "Résultat" }, { key: "failure_reason", label: "Motif" }, { key: "created_at", label: "Date", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") }]} rows={data.bankReturns} />
+            <h4 style={{ margin: "20px 0 10px", fontSize: 14, fontWeight: 700, color: TOKEN.textPrimary }}>Exports prélèvement salaire</h4>
+            <DataTable empty="Aucun export bancaire." columns={[{ key: "file_name", label: "Fichier" }, { key: "file_format", label: "Format", render: (r) => String(r.file_format || "").toUpperCase() }, { key: "month_ref", label: "Mois", render: (r) => String(r.month_ref || "").slice(0, 10) }, { key: "batch_status", label: "Statut batch" }, { key: "download", label: "Télécharger", render: (r) => <Btn onClick={() => downloadBankExport(r)} variant="teal" style={{ padding: "7px 10px" }}>Télécharger</Btn> }, { key: "created_at", label: "Créé le", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") }]} rows={data.bankExports} />
+          </>
+        ) : null}
+
       </div>
+
     </div>
   );
 
@@ -1297,7 +1463,7 @@ const GymManagement = () => {
     return (map[activeModule] || renderDashboard)();
   };
 
-  // ── SidebarNavItem ────────────────────────────────────────────
+  // ── SidebarNavItem ───────────────────────────────────────────
   function SidebarNavItem({ mod }) {
     const Icon = mod.icon;
     const active = activeModule === mod.id;
@@ -1335,7 +1501,7 @@ const GymManagement = () => {
     );
   }
 
-  // ── MAIN RENDER ───────────────────────────────────────────────
+  // ── MAIN RENDER ──────────────────────────────────────────────
   // The layout: fixed sidebar + fixed topbar + scrollable main content
   // No PageLayout wrapper — we control the full layout ourselves
   return (
