@@ -145,6 +145,14 @@ function buildAuthorizationFallbackPdf(row) {
   const deductionDay = Number(row.deduction_day || 5);
   const rib = String(row.bank_account || "").replace(/\D+/g, "");
   const ribChars = rib.split("");
+  const startDate = row.start_date ? new Date(row.start_date) : null;
+  const endDate = row.end_date ? new Date(row.end_date) : null;
+  const fmt = (value) => {
+    if (!value || Number.isNaN(value.getTime())) return "";
+    return value.toLocaleDateString("fr-FR");
+  };
+  const startText = fmt(startDate);
+  const endText = fmt(endDate);
   const dateText = new Date().toLocaleDateString("fr-FR");
 
   const y = (top) => pageHeight - top;
@@ -168,17 +176,17 @@ function buildAuthorizationFallbackPdf(row) {
 
   const rightX = 404;
   const metaTop = 56;
-  t(stream, rightX, metaTop, 11, "contract No", "F1");
+  t(stream, rightX, metaTop, 11, "contrat N°", "F1");
   t(stream, rightX + 54, metaTop, 11, contractNumber, "F2");
   line(stream, rightX + 54, metaTop + 2, rightX + 174, metaTop + 2, 0.8, "0.73 0.76 0.81");
-  t(stream, rightX + 10, metaTop + 22, 11, "Branch", "F1");
+  t(stream, rightX + 10, metaTop + 22, 11, "Salle", "F1");
   t(stream, rightX + 54, metaTop + 22, 11, branchName, "F2");
   line(stream, rightX + 54, metaTop + 24, rightX + 174, metaTop + 24, 0.8, "0.73 0.76 0.81");
   t(stream, rightX - 12, metaTop + 42, 11, "commercial", "F1");
   line(stream, rightX + 54, metaTop + 44, rightX + 174, metaTop + 44, 0.8, "0.73 0.76 0.81");
 
   box(stream, 198, 94, 404, 40, "0.47 0.51 0.58", null, 1.3);
-  t(stream, 245, 118, 18, "Automatic debit authorization", "F2");
+  t(stream, 240, 118, 18, "Autorisation de prelevement automatique", "F2");
 
   const labelX = 40;
   const valueX = 160;
@@ -194,12 +202,12 @@ function buildAuthorizationFallbackPdf(row) {
     cursor += rowGap + (lines.length - 1) * 14;
   };
 
-  drawRow("I, the undersigned", row.full_name || "", 56);
-  drawRow("Full name", `${row.full_name || ""} ( contract holder )`, 64);
-  drawRow("CIN No.", `${row.cin || ""} issued on ${row.cin_issued_at || ""} at ${row.cin_issued_place || ""}`, 70);
-  drawRow("Phone", row.phone || "", 56);
+  drawRow("Je soussigne(e)", row.full_name || "", 56);
+  drawRow("Nom et Prenom", `${row.full_name || ""} ( contrat au nom de )`, 64);
+  drawRow("C.I.N N°", `${row.cin || ""} delivree le ${row.cin_issued_at || ""} a ${row.cin_issued_place || ""}`, 72);
+  drawRow("N° telephone", row.phone || "", 56);
 
-  t(stream, labelX, cursor + 2, 11, "Bank RIB", "F1");
+  t(stream, labelX, cursor + 2, 11, "RIB Bancaire", "F1");
   const ribStartX = 160;
   const ribStartY = cursor - 2;
   const cellW = 24;
@@ -211,61 +219,62 @@ function buildAuthorizationFallbackPdf(row) {
   }
   cursor += 38;
 
-  const para1 = `authorizes ${companyName} to execute monthly and irrevocable automatic debits from my account, starting from ${asciiSafe(row.start_date || "")} and ending at ${asciiSafe(row.end_date || "")}.`;
-  wrapText(para1, 110).forEach((ln, idx) => t(stream, 40, cursor + idx * 14, 10.8, ln, "F1"));
-  cursor += wrapText(para1, 110).length * 14 + 8;
+  const para1 = `autorise ${companyName} a executer les ordres de prelevements automatiques, fermes et irrevocables sur mon compte une fois par mois a partir du mois de ${startText} et jusqu'au mois ${endText}.`;
+  const para1Lines = wrapText(para1, 110);
+  para1Lines.forEach((ln, idx) => t(stream, 40, cursor + idx * 14, 10.8, ln, "F1"));
+  cursor += para1Lines.length * 14 + 8;
 
-  t(stream, 40, cursor, 11, "either on day 05 of each month", "F1");
+  t(stream, 40, cursor, 11, "et ce ou bien le 05 de chaque mois", "F1");
   box(stream, 265, cursor - 14, 32, 22, "0.54 0.58 0.64", deductionDay === 5 ? "0.77 0.94 0.60" : null, 1);
   t(stream, 275, cursor + 3, 12, deductionDay === 5 ? "5" : "", "F2");
-  t(stream, 308, cursor, 11, "or on day 26 of each month", "F1");
+  t(stream, 308, cursor, 11, "ou bien le 26 de chaque mois", "F1");
   box(stream, 430, cursor - 14, 32, 22, "0.54 0.58 0.64", deductionDay === 26 ? "0.77 0.94 0.60" : null, 1);
   t(stream, 439, cursor + 3, 12, deductionDay === 26 ? "26" : "", "F2");
-  t(stream, 475, cursor, 10, "( mark the selected option )", "F3");
+  t(stream, 475, cursor, 10, "( a mettre une croix )", "F3");
   cursor += 26;
 
-  t(stream, 40, cursor, 11, `monthly amount: ${asciiSafe(row.amount)} DT`, "F1");
+  t(stream, 40, cursor, 11, `d'un montant de ${asciiSafe(row.amount)} DT,000, au profit de ${companyName}`, "F1");
   cursor += 18;
-  t(stream, 40, cursor, 11, `Company: ${companyName}`, "F1");
+  t(stream, 40, cursor, 11, `MF : 1271307F A/V/0000 - adresse : Immeuble Badr Bloc 8 4eme etage - khezama 47-sousse.`, "F1");
   cursor += 18;
-  t(stream, 40, cursor, 11, "MF: 1271307F A/V/0000 - address: Immeuble Badr Bloc 8 4th floor - Khezama 47-Sousse.", "F1");
+  const ribText = rib || "";
+  t(stream, 40, cursor, 11, `et ce sur le compte n° ${ribText} ouvert a Banque Zitouna - agence monastir.`, "F1");
   cursor += 18;
-  t(stream, 40, cursor, 11, "bank account opened at Banque Zitouna - Monastir branch.", "F1");
+  t(stream, 40, cursor, 11, "* Code de la ste olympe gym au niveau de La Banque Centrale : 0127", "F1");
   cursor += 18;
-  t(stream, 40, cursor, 11, "Central Bank code: 0127", "F1");
   cursor += 24;
 
   line(stream, 40, cursor + 12, 285, cursor + 12, 1.2, "0.10 0.12 0.16");
   line(stream, 315, cursor + 12, 560, cursor + 12, 1.2, "0.10 0.12 0.16");
-  t(stream, 40, cursor + 30, 10.5, `Done in ${city}, on ${dateText}`, "F2");
-  t(stream, 322, cursor + 30, 10.5, `Done in ${branchName}, on ${dateText}`, "F2");
-  t(stream, 40, cursor + 66, 10, "Account holder signature", "F1");
-  t(stream, 40, cursor + 82, 10, "(read and approved)", "F1");
-  t(stream, 322, cursor + 66, 10, "Bank approval", "F1");
-  t(stream, 322, cursor + 82, 10, "(stamp and signature)", "F1");
+  t(stream, 40, cursor + 30, 10.5, `Fait a ${city}, le ${dateText}`, "F2");
+  t(stream, 322, cursor + 30, 10.5, `Fait a ${branchName}, le ${dateText}`, "F2");
+  t(stream, 40, cursor + 66, 10, "Signature du Titulaire du compte", "F1");
+  t(stream, 40, cursor + 82, 10, "( Lu et approuve )", "F1");
+  t(stream, 322, cursor + 66, 10, "Accord de la Banque", "F1");
+  t(stream, 322, cursor + 82, 10, "(Visa et cachet du chef d'agence )", "F1");
   box(stream, 476, cursor + 34, 100, 100, "0.57 0.66 0.95", null, 1.2);
-  t(stream, 506, cursor + 85, 10, "STAMP", "F3");
-  t(stream, 40, cursor + 110, 10, "Name: ________________________________", "F1");
+  t(stream, 506, cursor + 85, 10, "CACHET", "F3");
+  t(stream, 40, cursor + 110, 10, "Nom : ________________________________", "F1");
 
   cursor += 128;
-  t(stream, 40, cursor, 11, "Special conditions:", "F2");
+  t(stream, 40, cursor, 11, "Conditions particulieres exigees :", "F2");
   cursor += 16;
   [
-    "1 - Bank details change:",
-    "If bank coordinates change, the subscriber must redo the authorization and submit it again.",
-    "2 - Subscription cancellation terms:",
-    "The subscription cannot be cancelled or refunded during the minimum period of 12 months.",
-    "The subscription is concluded for a minimum of 12 months. This duration is mandatory.",
-    "The debit amounts are guaranteed during the minimum subscription period.",
-    "The debit amounts may be increased after the minimum commitment period.",
-    "In case of a missed installment, Olympe Gym will block the subscription.",
-    "The member must regularize the due amount to reactivate the subscription.",
+    "1 - Changement des coordonnees bancaires :",
+    "En cas de changement des coordonnees bancaires, l'abonne est tenu de refaire l'autorisation et de la deposer dans la salle de sport concernee.",
+    "2 - Modalites de resiliation de l'abonnement :",
+    "L'abonnement ne peut etre resilie ni rembourse pendant la duree minimale, soit 12 mois.",
+    "L'abonnement est conclu pour une duree minimale de 12 mois. Cette duree est incompressible.",
+    "Les montants des prelevements sont garantis pendant la periode minimale de l'abonnement.",
+    "Les montants des prelevements peuvent etre revises a la hausse apres la periode minimale d'engagement.",
+    "En cas d'impayes d'une echeance, la societe Olympe Gym bloquera systematiquement l'abonnement.",
+    "L'adherent est tenu de regulariser le montant du pour reactiver son abonnement.",
   ].forEach((ln, idx) => {
     const bold = idx === 0 || idx === 2;
     t(stream, 40, cursor, bold ? 10.5 : 9.5, ln, bold ? "F2" : "F1");
     cursor += bold ? 12 : 11;
   });
-  t(stream, 40, 786, 10, `Done in ${city}, on ${dateText}. File reference ${contractNumber}.`, "F1");
+  t(stream, 40, 786, 10, `Fait a ${city}, le ${dateText}. Reference dossier ${contractNumber}.`, "F1");
 
   const content = createContentStream(stream);
   const objects = [
