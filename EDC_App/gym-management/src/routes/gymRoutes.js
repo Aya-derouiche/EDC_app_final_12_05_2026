@@ -587,33 +587,33 @@ function buildSalaryDeductionAuthorizationHtmlPaper(row) {
       body {
         margin: 0;
         background: #fff;
-        color: #111827;
+        color: #000;
         font-family: Arial, Helvetica, sans-serif;
-        font-size: 10.8px;
-        line-height: 1.6;
+        font-size: 10px;
+        line-height: 1.45;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
-      .sheet { min-height: 279mm; border: 1px solid #e5e7eb; padding: 18px 22px 14px; overflow: hidden; }
+      .sheet { min-height: 279mm; border: 1px solid #e5e7eb; padding: 16px 18px 12px; overflow: hidden; }
       .top-meta { display: grid; grid-template-columns: 1fr 255px; gap: 12px; margin-bottom: 10px; }
-      .meta { font-size: 10px; line-height: 1.8; color: #4b5563; }
+      .meta { font-size: 9.6px; line-height: 1.6; color: #000; }
       .meta-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
       .meta-label { min-width: 70px; text-align: right; }
-      .meta-value { display: inline-block; border-bottom: 1px solid #c6ccd6; min-width: 126px; padding: 0 4px 1px; color: #111827; }
+      .meta-value { display: inline-block; border-bottom: 1px solid #c6ccd6; min-width: 126px; padding: 0 4px 1px; color: #000; }
       .title {
         width: 64%;
-        margin: 10px auto 14px;
+        margin: 10px auto 12px;
         border: 2px solid #808896;
-        padding: 10px 16px;
+        padding: 8px 16px;
         text-align: center;
-        font-size: 18px;
+        font-size: 15px;
         font-weight: 700;
-        color: #4b5563;
+        color: #000;
       }
       .hand {
         font-family: Arial, Helvetica, sans-serif;
-        color: #111827;
-        font-size: 12.5px;
+        color: #000;
+        font-size: 11px;
         line-height: 1.3;
         white-space: nowrap;
       }
@@ -622,27 +622,27 @@ function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         border-bottom: 1px solid #b9c2ce;
         min-height: 18px;
         padding: 0 5px 1px;
-        color: #111827;
+        color: #000;
         font-family: Arial, Helvetica, sans-serif;
       }
-      .body { font-size: 10.8px; line-height: 1.6; color: #111827; }
-      .row { display: grid; grid-template-columns: 104px 1fr; gap: 10px; align-items: center; margin: 4px 0; }
-      .row .label { font-weight: 700; color: #374151; }
-      .subtle { color: #6b7280; font-size: 10px; }
-      .rib-row { display: grid; grid-template-columns: 104px 1fr; gap: 10px; align-items: start; margin: 6px 0 8px; }
-      .rib-grid { display: flex; flex-wrap: wrap; gap: 0; }
+      .body { font-size: 9.7px; line-height: 1.35; color: #000; }
+      .row { display: grid; grid-template-columns: 94px 1fr; gap: 10px; align-items: center; margin: 3px 0; }
+      .row .label { font-weight: 700; color: #000; }
+      .subtle { color: #000; font-size: 9px; }
+      .rib-row { display: grid; grid-template-columns: 94px 1fr; gap: 10px; align-items: start; margin: 5px 0 7px; }
+      .rib-grid { display: flex; flex-wrap: nowrap; gap: 0; overflow: hidden; }
       .rib-grid span {
-        width: 23px;
-        height: 26px;
+        width: 17px;
+        height: 22px;
         border: 1px solid #7c8a99;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         font-family: Arial, Helvetica, sans-serif;
-        color: #111827;
-        font-size: 12px;
+        color: #000;
+        font-size: 9px;
       }
-      .paragraph { margin: 6px 0; }
+      .paragraph { margin: 4px 0; }
       .choice-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 10px; }
       .check-box {
         width: 31px;
@@ -653,7 +653,7 @@ function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         justify-content: center;
         font-size: 12px;
         background: #fff;
-        color: #111827;
+        color: #000;
       }
       .check-box.active { background: #c3f48f; border-color: #77aa48; }
       .amount-line {
@@ -662,13 +662,13 @@ function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         text-align: center;
         border-bottom: 1px solid #b9c2ce;
         font-family: Arial, Helvetica, sans-serif;
-        color: #111827;
-        font-size: 12.5px;
+        color: #000;
+        font-size: 11px;
         padding: 0 4px;
       }
       .signature-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 14px; }
       .signature-box { min-height: 120px; position: relative; }
-      .sig-title { font-size: 10.8px; color: #4b5563; font-weight: 700; margin-bottom: 8px; }
+      .sig-title { font-size: 9.6px; color: #000; font-weight: 700; margin-bottom: 8px; }
       .stamp {
         position: absolute;
         right: 8px;
@@ -684,11 +684,11 @@ function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         transform: rotate(-14deg);
         font-size: 10px;
       }
-      .conditions { margin-top: 14px; font-size: 9.5px; line-height: 1.45; color: #4b5563; }
-      .conditions h4 { margin: 0 0 6px; font-size: 11px; color: #374151; }
+      .conditions { margin-top: 12px; font-size: 8.8px; line-height: 1.28; color: #000; }
+      .conditions h4 { margin: 0 0 6px; font-size: 10px; color: #000; }
       .conditions .section { margin-top: 8px; }
       .conditions .indent { margin-left: 12px; }
-      .footer { margin-top: 10px; font-size: 10px; text-align: center; color: #4b5563; }
+      .footer { margin-top: 8px; font-size: 9px; text-align: center; color: #000; }
     </style>
     <section class="sheet">
       <div class="top-meta">
