@@ -159,8 +159,8 @@ const modules = [
   { id: "members", label: "Membres", icon: GroupsIcon },
   { id: "subscriptions", label: "Abonnements", icon: CardMembershipIcon },
   { id: "contracts", label: "Contrats", icon: DescriptionIcon },
+    { id: "authorizations", label: "Autorisations", icon: AccountBalanceIcon },
   { id: "hq", label: "Validation siège", icon: SecurityIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
-  { id: "authorizations", label: "Autorisations", icon: AccountBalanceIcon },
   { id: "payments", label: "Paiements", icon: PaymentsIcon },
     { id: "bankExports", label: "Genérer TXT/XML", icon: PictureAsPdfIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
   { id: "bankReturns", label: "Retours bancaires", icon: ReplayIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
@@ -700,6 +700,7 @@ const GymManagement = () => {
     }, selectedSubscription?.id ? "Abonnement mis à jour." : "Abonnement créé.");
   };
   const editSubscription = (subscription) => {
+    const member = data.members.find((m) => String(m.id) === String(subscription.member_id));
     setSelectedSubscription(subscription);
     setForm("subscription", {
       branch_id: subscription.branch_id ? String(subscription.branch_id) : "",
@@ -707,7 +708,7 @@ const GymManagement = () => {
       plan_name: subscription.plan_name || "Standard",
       amount: subscription.amount ?? "",
       payment_method: subscription.payment_method || "direct",
-      bank_account: subscription.bank_account || "",
+      bank_account: subscription.subscription_bank_account || subscription.bank_account || member?.bank_account || "",
       due_day: subscription.due_day || 5,
       start_date: String(subscription.start_date || new Date().toISOString().slice(0, 10)).slice(0, 10),
       end_date: String(subscription.end_date || "").slice(0, 10),
@@ -869,6 +870,16 @@ const GymManagement = () => {
       const link = document.createElement("a"); link.href = url; link.download = `${selectedContract.contract_number || "contract"}.pdf`;
       document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
     } catch (err) { setError(err?.response?.data?.error || "Export PDF impossible."); }
+  };
+  const deleteContract = (id) => {
+    if (!window.confirm("Supprimer ce contrat ?")) return;
+    runAction(async () => {
+      await gymApi.delete(`/contract-ai/contracts/${id}`);
+      if (selectedContract?.id && String(selectedContract.id) === String(id)) {
+        setSelectedContract(null);
+        setContractEditorHtml("");
+      }
+    }, "Contrat supprimé.");
   };
   const saveTemplate = (e) => {
     e.preventDefault();
@@ -1137,10 +1148,8 @@ const GymManagement = () => {
   );
 
   const renderContracts = () => {
-    const suggestions = Array.isArray(selectedContract?.ai_suggestions) ? selectedContract.ai_suggestions : [];
-    const warnings = Array.isArray(selectedContract?.validation_warnings) ? selectedContract.validation_warnings : [];
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr 320px", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 16, alignItems: "start" }}>
         <div style={{ display: "grid", gap: 16 }}>
           <form onSubmit={generateAiContract} style={cardStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
@@ -1152,37 +1161,10 @@ const GymManagement = () => {
             <Field as="select" value={forms.contract.member_id} onChange={(e) => setForm("contract", { member_id: e.target.value })}><option value="">Member profile</option>{data.members.map((m) => <option key={m.id} value={m.id}>{m.member_code} - {m.full_name}</option>)}</Field>
             <Field as="select" value={forms.contract.subscription_id} onChange={(e) => setForm("contract", { subscription_id: e.target.value })}><option value="">Subscription plan</option>{data.subscriptions.map((s) => <option key={s.id} value={s.id}>{s.full_name} - {s.plan_name} - {s.amount} DT</option>)}</Field>
             <Field as="select" value={forms.contract.branch_id} onChange={(e) => setForm("contract", { branch_id: e.target.value })}><option value="">Gym branch</option>{data.branches.map((b) => <option key={b.id} value={b.id}>{b.branch_code} - {b.branch_name}</option>)}</Field>
-            <textarea value={forms.contract.custom_instructions} onChange={(e) => setForm("contract", { custom_instructions: e.target.value })} placeholder="Custom instructions..." rows={4} style={{ ...inputStyle, resize: "vertical" }} />
-            <Btn type="submit" style={{ width: "100%", display: "flex", gap: 8, alignItems: "center", justifyContent: "center" }}><AutoAwesomeIcon fontSize="small" /> Generate contract</Btn>
-          </form>
-          <form onSubmit={saveTemplate} style={cardStyle}>
-            <SectionTitle>{selectedTemplate ? "Modifier template" : "Templates"}</SectionTitle>
-            <Field as="select" value={forms.template.contract_type} onChange={(e) => setForm("template", { contract_type: e.target.value })}>{contractTypeOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Field>
-            <Field as="select" value={forms.template.language} onChange={(e) => setForm("template", { language: e.target.value })}>{languageOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Field>
-            <Field placeholder="Template name" value={forms.template.name} onChange={(e) => setForm("template", { name: e.target.value })} required />
-            <textarea value={forms.template.content_skeleton} onChange={(e) => setForm("template", { content_skeleton: e.target.value })} placeholder="Template skeleton" rows={4} style={{ ...inputStyle, resize: "vertical" }} />
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Btn type="submit" style={{ width: "100%" }}>{selectedTemplate ? "Mettre à jour" : "Save template"}</Btn>
-              {selectedTemplate ? <Btn type="button" variant="dark" onClick={cancelTemplateEdit}>Annuler</Btn> : null}
+            <div style={{ color: TOKEN.textMuted, fontSize: 13, lineHeight: 1.5, margin: "6px 0 12px" }}>
+              The contract will be generated automatically. You can choose the member, subscription and branch, then export the final PDF.
             </div>
-            <div style={{ marginTop: 10, color: TOKEN.textMuted, fontSize: 13 }}>{data.contractTemplates.length} templates available</div>
-            <div style={{ marginTop: 12 }}>
-              <DataTable
-                empty="Aucun template."
-                columns={[
-                  { key: "name", label: "Nom" },
-                  { key: "contract_type", label: "Type" },
-                  { key: "language", label: "Langue" },
-                  { key: "action", label: "Action", render: (r) => (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <Btn type="button" onClick={() => editTemplate(r)} style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><EditIcon fontSize="small" /> Modifier</Btn>
-                      <Btn type="button" onClick={() => deleteTemplate(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /> Supprimer</Btn>
-                    </div>
-                  ) },
-                ]}
-                rows={data.contractTemplates}
-              />
-            </div>
+            <Btn type="submit" style={{ width: "100%", minHeight: 52, display: "flex", gap: 8, alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 800 }}><AutoAwesomeIcon fontSize="small" /> Generate contract</Btn>
           </form>
         </div>
         <div style={{ display: "grid", gap: 16 }}>
@@ -1193,38 +1175,44 @@ const GymManagement = () => {
                 <div style={{ color: TOKEN.textMuted, fontSize: 13, marginTop: 3 }}>{selectedContract ? `${selectedContract.contract_number} · ${selectedContract.status}` : "Generate or select a contract"}</div>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                <Btn onClick={saveContractDraft} disabled={!selectedContract} variant="dark">Save draft</Btn>
-                <Btn onClick={() => moveContract("review")} disabled={!selectedContract} variant="purple">Review</Btn>
-                <Btn onClick={() => moveContract("approve")} disabled={!selectedContract} variant="green">Approve</Btn>
-                <Btn onClick={() => moveContract("ready-to-print")} disabled={!selectedContract} variant="teal">Ready</Btn>
                 <Btn onClick={exportContractPdf} disabled={!selectedContract} variant="violet" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><PictureAsPdfIcon fontSize="small" /> PDF</Btn>
               </div>
             </div>
-            <textarea value={contractEditorHtml} onChange={(e) => setContractEditorHtml(e.target.value)} rows={18} style={{ ...inputStyle, minHeight: 420, fontFamily: "Consolas, Monaco, monospace", resize: "vertical", lineHeight: 1.45 }} placeholder="<h1>Contract content</h1>" />
             <div style={{ border: `1px solid ${TOKEN.border}`, borderRadius: 10, padding: 18, background: TOKEN.bgInput }}>
               <div style={{ color: TOKEN.textMuted, fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 10 }}>Printable preview</div>
-              <div style={{ background: "#fff", border: `1px solid ${TOKEN.border}`, borderRadius: 8, padding: 20, minHeight: 180 }} dangerouslySetInnerHTML={{ __html: contractEditorHtml || "<p>No contract selected.</p>" }} />
+              <div
+                style={{
+                  background: "#fff",
+                  border: `1px solid ${TOKEN.border}`,
+                  borderRadius: 8,
+                  padding: 20,
+                  minHeight: 420,
+                  maxHeight: 760,
+                  overflow: "auto",
+                  lineHeight: 1.6,
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: selectedContract?.content_html || contractEditorHtml || "<p>No contract selected.</p>",
+                }}
+              />
             </div>
           </div>
           <div style={cardStyle}>
             <SectionTitle>Generated contracts</SectionTitle>
-            <DataTable empty="No contracts generated yet." columns={[{ key: "contract_number", label: "Number" }, { key: "contract_type", label: "Type" }, { key: "full_name", label: "Member" }, { key: "status", label: "Workflow" }, { key: "action", label: "Preview", render: (r) => <Btn onClick={() => selectContract(r)} style={{ padding: "7px 10px" }}>Open</Btn> }]} rows={data.contracts} />
-          </div>
-        </div>
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={cardStyle}>
-            <SectionTitle>AI suggestions</SectionTitle>
-            {suggestions.length === 0 ? <div style={{ color: TOKEN.textMuted, fontSize: 13 }}>No suggestions yet.</div> : null}
-            {suggestions.map((item, i) => <div key={i} style={{ borderBottom: `1px solid ${TOKEN.border}`, padding: "10px 0" }}><strong style={{ color: TOKEN.textPrimary }}>{item.title || item.type || "Suggestion"}</strong><div style={{ color: TOKEN.textSecondary, marginTop: 4, fontSize: 13.5 }}>{item.text || item.body}</div></div>)}
-          </div>
-          <div style={cardStyle}>
-            <SectionTitle>Validation warnings</SectionTitle>
-            {warnings.length === 0 ? <div style={{ color: "#166534", fontSize: 13 }}>No blocking warnings.</div> : null}
-            {warnings.map((item, i) => <div key={i} style={{ background: TOKEN.warningLight, border: `1px solid #fde68a`, borderRadius: 8, padding: 10, marginBottom: 8, color: "#92400e" }}><strong>{item.field || item.severity || "Warning"}</strong><div style={{ fontSize: 13.5, marginTop: 2 }}>{item.message || item.text}</div></div>)}
-          </div>
-          <div style={cardStyle}>
-            <SectionTitle>Clause recommendations</SectionTitle>
-            {contractTypeOptions.map(([v, l]) => <div key={v} style={{ display: "flex", justifyContent: "space-between", gap: 8, borderBottom: `1px solid ${TOKEN.border}`, padding: "8px 0", fontSize: 13.5 }}><span style={{ color: TOKEN.textPrimary }}>{l}</span><span style={{ color: TOKEN.textMuted }}>legal + payment</span></div>)}
+            <DataTable empty="No contracts generated yet." columns={[
+              { key: "contract_number", label: "Number" },
+              { key: "contract_type", label: "Type" },
+              { key: "full_name", label: "Member" },
+              { key: "status", label: "Workflow" },
+              { key: "action", label: "Action", render: (r) => (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Btn onClick={() => selectContract(r)} style={{ padding: "7px 10px" }}>Open</Btn>
+                  <Btn onClick={() => deleteContract(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}>
+                    <DeleteOutlineIcon fontSize="small" /> Delete
+                  </Btn>
+                </div>
+              ) },
+            ]} rows={data.contracts} />
           </div>
         </div>
       </div>
@@ -1312,8 +1300,8 @@ const GymManagement = () => {
             onChange={(e) => setForm("bankReturn", { bank_name: e.target.value })}
             hint="Nom du fichier ou banque qui a envoyé le retour."
           >
+            <option value="Zitouna">Zitouna</option>
             <option value="BIAT">BIAT</option>
-            <option value="STB">Zitouna</option>
             <option value="STB">STB</option>
             <option value="ATB">ATB</option>
             <option value="BH">BH</option>

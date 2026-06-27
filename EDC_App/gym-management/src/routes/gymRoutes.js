@@ -13,7 +13,7 @@ const {
   normalizeType,
   stripHtml,
 } = require("../services/contractAiService");
-const { generatePdf } = require("../services/pdfGenerator");
+const { generatePdf, generateAuthorizationFallbackPdf } = require("../services/pdfGenerator");
 const { generatePdfFromHtml } = require("../services/htmlPdfGenerator");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -2427,6 +2427,20 @@ router.get("/contract-ai/contracts/:id", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.delete("/contract-ai/contracts/:id", requireRole("admin", "super_admin", "hq_admin", "gym_manager", "comptable"), async (req, res, next) => {
+  try {
+    await ensureSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const params = [req.params.id, scope.code];
+    const where = ["id=$1", "tenant_code=$2"];
+    addBranchCondition(where, params, scope);
+    const out = await query(`DELETE FROM contracts WHERE ${where.join(" AND ")} RETURNING id, contract_number`, params);
+    if (!out.rows[0]) return res.status(404).json({ error: "Contract not found" });
+    res.json({ message: "Contract deleted", id: out.rows[0].id, contract_number: out.rows[0].contract_number });
+  } catch (e) { next(e); }
+});
+
 router.post("/contract-ai/contracts/:id/draft", requireRole("admin", "super_admin", "hq_admin", "gym_manager", "comptable", "client"), async (req, res, next) => {
   try {
     await ensureSchema();
@@ -2749,10 +2763,10 @@ router.post("/subscriptions", requireRole("admin", "super_admin", "hq_admin", "g
 
     const r = await query(
       `INSERT INTO gym_subscriptions
-      (code_entreprise, branch_id, member_id, plan_name, amount, payment_method, workflow_status, status, due_day, start_date, end_date, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,5),$10,$11,$12)
+      (code_entreprise, branch_id, member_id, plan_name, amount, payment_method, bank_account, workflow_status, status, due_day, start_date, end_date, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10,5),$11,$12,$13)
       RETURNING *`,
-      [scope.code, branchId, b.member_id, b.plan_name, b.amount, paymentMethod, workflow, subscriptionStatus, b.due_day || 5, b.start_date, b.end_date || null, req.user?.id || null]
+      [scope.code, branchId, b.member_id, b.plan_name, b.amount, paymentMethod, bankAccount, workflow, subscriptionStatus, b.due_day || 5, b.start_date, b.end_date || null, req.user?.id || null]
     );
 
     const created = r.rows[0];
@@ -2849,12 +2863,13 @@ router.patch("/subscriptions/:id", requireRole("admin", "super_admin", "hq_admin
            plan_name=COALESCE($3, plan_name),
            amount=COALESCE($4, amount),
            payment_method=COALESCE($5, payment_method),
-           workflow_status=COALESCE($6, workflow_status),
-           due_day=COALESCE($7, due_day),
-           start_date=COALESCE($8, start_date),
-           end_date=$9,
+           bank_account=COALESCE($6, bank_account),
+           workflow_status=COALESCE($7, workflow_status),
+           due_day=COALESCE($8, due_day),
+           start_date=COALESCE($9, start_date),
+           end_date=$10,
            updated_at=NOW()
-       WHERE id=$10 AND code_entreprise=$11
+       WHERE id=$11 AND code_entreprise=$12
        RETURNING *`,
       [
         branchId,
@@ -2862,6 +2877,7 @@ router.patch("/subscriptions/:id", requireRole("admin", "super_admin", "hq_admin
         b.plan_name || null,
         b.amount !== undefined && b.amount !== null && b.amount !== "" ? Number(b.amount) : null,
         b.payment_method || null,
+        bankAccount || null,
         b.workflow_status || null,
         b.due_day !== undefined && b.due_day !== null && b.due_day !== "" ? Number(b.due_day) : null,
         b.start_date || null,
@@ -2899,7 +2915,7 @@ router.get("/subscriptions", async (req, res, next) => {
     addBranchCondition(where, params, scope, "s");
     const pagination = parsePagination(req, { defaultLimit: 40, maxLimit: 200 });
     const { rows, total } = await fetchListWithPagination({
-      dataSql: `SELECT s.*, m.full_name, m.member_code, b.branch_name
+      dataSql: `SELECT s.*, s.bank_account AS subscription_bank_account, m.bank_account AS member_bank_account, m.full_name, m.member_code, b.branch_name
                 FROM gym_subscriptions s
                 JOIN gym_members m ON m.id = s.member_id
                 LEFT JOIN gym_branches b ON b.id=s.branch_id
@@ -3124,8 +3140,8 @@ router.get("/subscriptions/:id/authorization-form", async (req, res, next) => {
     const where = ["s.id=$1", "s.code_entreprise=$2"];
     addBranchCondition(where, params, scope, "s");
     const r = await query(
-      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.bank_account, s.plan_name, s.code_entreprise,
-              m.full_name, m.employee_id, m.cin, m.bank_account, m.phone,
+      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.bank_account AS subscription_bank_account, s.plan_name, s.code_entreprise,
+              m.full_name, m.employee_id, m.cin, m.bank_account AS member_bank_account, m.phone,
               b.branch_name, b.city AS branch_city,
               c.contract_number, c.authorization_reference
        FROM gym_subscriptions s
@@ -3136,7 +3152,10 @@ router.get("/subscriptions/:id/authorization-form", async (req, res, next) => {
       params
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Subscription not found" });
-    const x = r.rows[0];
+    const x = {
+      ...r.rows[0],
+      bank_account: r.rows[0].subscription_bank_account || r.rows[0].member_bank_account || "",
+    };
     const text = `Autorisation de prelevement automatique\nAbonne: ${x.full_name}\nEmploye: ${x.employee_id || "-"}\nCIN: ${x.cin || "-"}\nCompte: ${x.bank_account || "-"}\nMontant mensuel: ${x.amount} DT\nDate debut: ${formatDate(x.start_date)}`;
     await safeCreateNotification({
       tenant_code: scope.code || config.defaultTenantCode,
@@ -3164,8 +3183,8 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
     const where = ["s.id=$1", "s.code_entreprise=$2", "s.payment_method='salary_deduction'"];
     addBranchCondition(where, params, scope, "s");
     const r = await query(
-      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.bank_account, s.plan_name, s.code_entreprise,
-              m.full_name, m.employee_id, m.cin, m.bank_account, m.phone,
+      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.bank_account AS subscription_bank_account, s.plan_name, s.code_entreprise,
+              m.full_name, m.employee_id, m.cin, m.bank_account AS member_bank_account, m.phone,
               b.branch_name, b.city AS branch_city,
               c.id AS contract_id, c.contract_number, c.authorization_reference
        FROM gym_subscriptions s
@@ -3177,7 +3196,11 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
     );
     if (!r.rows[0]) return res.status(404).json({ error: "Salary deduction subscription not found" });
 
-    const html = buildSalaryDeductionAuthorizationHtmlPaper(r.rows[0]);
+    const authRow = {
+      ...r.rows[0],
+      bank_account: r.rows[0].subscription_bank_account || r.rows[0].member_bank_account || "",
+    };
+    const html = buildSalaryDeductionAuthorizationHtmlPaper(authRow);
     let pdf = await generatePdfFromHtml({
       title: `Autorisation prelevement automatique - SUB-${r.rows[0].id}`,
       html,
@@ -3187,11 +3210,7 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
       pageMargin: "10mm 10mm",
     });
     if (!pdf) {
-      pdf = generatePdf({
-        title: "Autorisation de prelevement automatique",
-        html,
-        text: stripHtml(html),
-      });
+      pdf = generateAuthorizationFallbackPdf(authRow);
     }
     const fileName = `autorisation_prelevement_automatique_SUB-${r.rows[0].id}.pdf`;
     const savedFile = await trySaveGymGeneratedFile({
