@@ -78,6 +78,11 @@ const SectionLabel = ({ label }) => (
 const Sidebar = ({ isSidebarOpen, setIsSidebarOpen }) => {
   const { user } = useContext(UserContext);
   const location = useLocation();
+  const canViewUsers =
+    String(user?.identite || "").trim().toLowerCase() === "ines" &&
+    String(user?.position || "").trim().toLowerCase() === "comptable senior" &&
+    String(user?.role || "").trim().toLowerCase() === "comptable";
+  const navItems = NAV_ITEMS.filter((item) => item.to !== "/users" || canViewUsers);
 
   return (
     <>
@@ -145,7 +150,7 @@ const Sidebar = ({ isSidebarOpen, setIsSidebarOpen }) => {
 
         <nav style={{ flex: 1, paddingBottom: 20 }}>
           <SectionLabel label="Navigation" />
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavItem key={item.to} {...item} active={location.pathname === item.to} />
           ))}
 

@@ -329,8 +329,19 @@ router.get("/code_entreprises", async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.get("/users", async (_req, res, next) => {
+function canAccessUsersDirectory(user) {
+  return (
+    String(user?.identite || "").trim().toLowerCase() === "ines" &&
+    String(user?.position || "").trim().toLowerCase() === "comptable senior" &&
+    String(user?.role || "").trim().toLowerCase() === "comptable"
+  );
+}
+
+router.get("/users", requireAuth, async (req, res, next) => {
   try {
+    if (!canAccessUsersDirectory(req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     const r = await query("SELECT id, code_entreprise, code_user, identite, position, tel, email, role, profile_image, created_at FROM utilisateurs ORDER BY id DESC");
     res.json(r.rows);
   } catch (e) { next(e); }
@@ -763,8 +774,9 @@ router.post("/documents/upload-and-scan", uploadMemory.single("file"), async (re
       },
       scan_success: !!scanResult.success,
       extractedData: scanResult.extractedData || null,
-      confidence_score: scanResult.confidence_score || 0,
+      confidence_score: scanResult.success ? (scanResult.confidence_score || 0.75) : 0,
       scan_error: scanResult.error || null,
+      rawText: scanResult.rawText || null,
     });
   } catch (e) { next(e); }
 });

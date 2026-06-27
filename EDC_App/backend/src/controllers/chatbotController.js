@@ -74,6 +74,35 @@ async function listMessages(req, res, next) {
   }
 }
 
+async function deleteConversation(req, res, next) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const tenantId = requireTenantId(req, res);
+    if (!tenantId) return;
+
+    const conversationId = toPositiveInt(req.params.conversationId);
+    if (!conversationId) return res.status(400).json({ error: "Invalid conversationId" });
+
+    const docs = await repo.getChatbotDocumentsForConversation(tenantId, conversationId);
+    for (const doc of docs) {
+      try {
+        await minioClient.removeObject(doc.storage_bucket || bucket, doc.storage_key);
+      } catch (_e) {}
+      try {
+        await repo.deleteChatbotDocument(doc.id);
+      } catch (_e) {}
+    }
+
+    const deleted = await repo.deleteConversation(conversationId);
+    if (!deleted) return res.status(404).json({ error: "Conversation not found" });
+    return res.json({ success: true, conversationId });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function uploadDocument(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ error: "File is required" });
@@ -116,6 +145,29 @@ async function uploadDocument(req, res, next) {
   }
 }
 
+async function deleteDocument(req, res, next) {
+  try {
+    const tenantId = requireTenantId(req, res);
+    if (!tenantId) return;
+
+    const documentId = toPositiveInt(req.params.documentId);
+    if (!documentId) return res.status(400).json({ error: "Invalid documentId" });
+
+    const doc = await repo.getChatbotDocumentById(tenantId, documentId);
+    if (!doc) return res.status(404).json({ error: "Document not found" });
+
+    try {
+      await minioClient.removeObject(doc.storage_bucket || bucket, doc.storage_key);
+    } catch (_e) {}
+
+    const deleted = await repo.deleteChatbotDocument(doc.id);
+    if (!deleted) return res.status(404).json({ error: "Document not found" });
+    return res.json({ success: true, documentId: doc.id, conversationId: doc.conversation_id || null });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function listDocuments(req, res, next) {
   try {
     const tenantId = requireTenantId(req, res);
@@ -133,4 +185,4 @@ async function listDocuments(req, res, next) {
   }
 }
 
-module.exports = { sendMessage, listConversations, listMessages, uploadDocument, listDocuments };
+module.exports = { sendMessage, listConversations, listMessages, deleteConversation, uploadDocument, deleteDocument, listDocuments };

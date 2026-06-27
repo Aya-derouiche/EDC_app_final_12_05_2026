@@ -1,5 +1,13 @@
 ﻿import React, { useEffect, useRef, useState } from "react";
-import { getChatbotConversations, getChatbotMessages, sendChatbotMessage, uploadChatbotDocument, getChatbotDocuments } from "./chatbotApi";
+import {
+  getChatbotConversations,
+  getChatbotMessages,
+  sendChatbotMessage,
+  uploadChatbotDocument,
+  getChatbotDocuments,
+  deleteChatbotConversation,
+  deleteChatbotDocument,
+} from "./chatbotApi";
 import ChatMessage from "./ChatMessage";
 import ChatInput from "./ChatInput";
 
@@ -25,6 +33,40 @@ export default function ChatWindow({ onClose }) {
   const refreshDocuments = async (convId) => {
     const { data } = await getChatbotDocuments(convId || undefined);
     setDocuments(data || []);
+  };
+
+  const handleDeleteConversation = async (id) => {
+    if (!window.confirm("Supprimer cette conversation ?")) return;
+    try {
+      await deleteChatbotConversation(id);
+      const remaining = await refreshConversations();
+      const nextConversationId = remaining.find((c) => c.id !== id)?.id || null;
+      setConversationId((current) => (current === id ? nextConversationId : current));
+      if (nextConversationId !== id) {
+        if (nextConversationId) {
+          const { data } = await getChatbotMessages(nextConversationId);
+          setMessages(data || []);
+          await refreshDocuments(nextConversationId);
+        } else {
+          setMessages([]);
+          setDocuments([]);
+        }
+      }
+    } catch (_e) {
+      const message = _e?.response?.data?.error || "Impossible de supprimer la conversation.";
+      setError(message);
+    }
+  };
+
+  const handleDeleteDocument = async (id) => {
+    if (!window.confirm("Supprimer ce fichier joint ?")) return;
+    try {
+      await deleteChatbotDocument(id);
+      await refreshDocuments(conversationId);
+    } catch (_e) {
+      const message = _e?.response?.data?.error || "Impossible de supprimer le fichier.";
+      setError(message);
+    }
   };
 
   useEffect(() => { refreshConversations().then((data) => { if (data.length) setConversationId(data[0].id); }).catch(() => setError("Impossible de charger les conversations.")); }, []);
@@ -76,19 +118,31 @@ export default function ChatWindow({ onClose }) {
     <div className="cb-panel">
       <div className="cb-sidebar">
         <div className="cb-sidebar-title">Historique</div>
-        <button className="cb-new" onClick={() => { setConversationId(null); setMessages([]); }}>+ Nouvelle</button>
+        <button type="button" className="cb-new" onClick={() => { setConversationId(null); setMessages([]); setDocuments([]); }}>+ Nouvelle</button>
         <div className="cb-conv-list">
-          {conversations.map((c) => <button key={c.id} className={`cb-conv-item ${conversationId === c.id ? "active" : ""}`} onClick={() => setConversationId(c.id)}>{c.title || `Conversation ${c.id}`}</button>)}
+          {conversations.map((c) => (
+            <div key={c.id} className={`cb-conv-item-wrap ${conversationId === c.id ? "active" : ""}`}>
+              <button type="button" className="cb-conv-item" onClick={() => setConversationId(c.id)}>{c.title || `Conversation ${c.id}`}</button>
+              <button type="button" className="cb-icon-btn cb-conv-del" onClick={() => handleDeleteConversation(c.id)} aria-label="Supprimer la conversation">×</button>
+            </div>
+          ))}
         </div>
       </div>
       <div className="cb-main">
-        <div className="cb-header"><strong>Assistant IA</strong><button className="cb-close" onClick={onClose}>Fermer</button></div>
-        <div className="cb-docs">{documents.slice(0, 5).map((d) => <span key={d.id} className="cb-doc-pill">{d.original_filename}</span>)}</div>
+        <div className="cb-header"><strong>Assistant comptable IA</strong><button className="cb-close" onClick={onClose}>Fermer</button></div>
+        <div className="cb-docs">
+          {documents.slice(0, 5).map((d) => (
+            <span key={d.id} className="cb-doc-pill">
+              <span className="cb-doc-name">{d.original_filename}</span>
+              <button type="button" className="cb-icon-btn cb-doc-del" onClick={() => handleDeleteDocument(d.id)} aria-label="Supprimer le fichier">×</button>
+            </span>
+          ))}
+        </div>
         <div className="cb-messages" ref={listRef}>
           {loading && <div className="cb-status">Chargement...</div>}
           {messages.map((m) => <ChatMessage key={m.id} message={m} />)}
           {typing && <div className="cb-typing"><span></span><span></span><span></span></div>}
-          {!loading && messages.length === 0 && <div className="cb-status">Pose ta première question ou ajoute un document.</div>}
+          {!loading && messages.length === 0 && <div className="cb-status">Pose une question comptable ou ajoute un document à analyser.</div>}
         </div>
         {error && <div className="cb-error">{error}</div>}
         <ChatInput onSend={handleSend} onUpload={handleUpload} disabled={typing} uploading={uploading} />

@@ -105,3 +105,47 @@ CREATE TABLE IF NOT EXISTS tenant_modules (
 
 CREATE INDEX IF NOT EXISTS idx_tenant_modules_code ON tenant_modules(code_entreprise);
 CREATE INDEX IF NOT EXISTS idx_tenant_modules_key ON tenant_modules(module_key);
+
+-- Gym bank return reconciliation
+CREATE TABLE IF NOT EXISTS gym_bank_return_imports (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  uploaded_by BIGINT,
+  source_bank VARCHAR(120),
+  original_filename TEXT NOT NULL,
+  sheet_name TEXT,
+  import_status VARCHAR(30) NOT NULL DEFAULT 'processed',
+  total_rows INTEGER NOT NULL DEFAULT 0,
+  matched_rows INTEGER NOT NULL DEFAULT 0,
+  rejected_rows INTEGER NOT NULL DEFAULT 0,
+  unmatched_rows INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS gym_bank_return_items (
+  id BIGSERIAL PRIMARY KEY,
+  import_id BIGINT NOT NULL REFERENCES gym_bank_return_imports(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL,
+  row_number INTEGER NOT NULL,
+  emitter_code VARCHAR(80),
+  creditor_rib TEXT,
+  payer_rib TEXT,
+  domicile_ref TEXT,
+  libelle TEXT,
+  due_date TEXT,
+  amount NUMERIC(14,3),
+  motif_rejet TEXT,
+  normalized_status VARCHAR(30) NOT NULL,
+  match_score NUMERIC(5,2) NOT NULL DEFAULT 0,
+  match_source VARCHAR(50),
+  follow_up_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  member_id BIGINT,
+  subscription_id BIGINT,
+  payment_id BIGINT,
+  bank_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_gym_bank_return_imports_tenant ON gym_bank_return_imports(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_gym_bank_return_items_import ON gym_bank_return_items(import_id);
+CREATE INDEX IF NOT EXISTS idx_gym_bank_return_items_tenant ON gym_bank_return_items(tenant_id);

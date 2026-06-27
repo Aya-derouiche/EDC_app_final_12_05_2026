@@ -15,8 +15,8 @@ const ModuleLogin = () => {
   const isGym = module === "gym";
   const conf = useMemo(
     () => ({
-      title: isGym ? "Gym Management" : "Comptabilite",
-      subtitle: isGym ? "Connectez-vous a l'espace fitness" : "Connectez-vous a l'espace comptable",
+      title: isGym ? "Gym Management" : "Comptabilité",
+      subtitle: isGym ? "Connectez-vous à l'espace fitness" : "Connectez-vous à l'espace comptable",
       icon: isGym ? "🏋" : "📊",
     }),
     [isGym]
@@ -57,7 +57,7 @@ const ModuleLogin = () => {
         navigate("/home");
       }
     } catch (_err) {
-      setError("Identifiants invalides. Veuillez reessayer.");
+      setError("Identifiants invalides. Veuillez réessayer.");
     } finally {
       setLoading(false);
     }
@@ -126,7 +126,7 @@ const ModuleLogin = () => {
             onChange={(e) => setIdentite(e.target.value)}
             placeholder="Nom d'utilisateur"
             required
-            style={{ width: "100%", marginBottom: 12, padding: 11, borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14 }}
+            style={{ width: "100%", marginBottom: 12, padding: 11, borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, boxSizing: "border-box" }}
           />
 
           <label style={{ display: "block", marginBottom: 6, fontWeight: 600, color: "#1f2937", fontSize: 13 }}>
@@ -138,7 +138,7 @@ const ModuleLogin = () => {
             onChange={(e) => setMotDePasse(e.target.value)}
             placeholder="Mot de passe"
             required
-            style={{ width: "100%", marginBottom: 14, padding: 11, borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14 }}
+            style={{ width: "100%", marginBottom: 14, padding: 11, borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, boxSizing: "border-box" }}
           />
 
           <button
@@ -153,15 +153,23 @@ const ModuleLogin = () => {
               background: loading ? "#94a3b8" : "#27ae60",
               fontWeight: 700,
               fontSize: 15,
+              cursor: loading ? "not-allowed" : "pointer",
             }}
           >
             {loading ? "Connexion..." : "Se connecter"}
           </button>
 
-          <div style={{ marginTop: 12, textAlign: "center" }}>
+          <div style={{ marginTop: 12, display: "flex", justifyContent: "center", gap: 20 }}>
             <Link to="/modules" style={{ color: "#475569", textDecoration: "none", fontSize: 13 }}>
               Retour aux modules
             </Link>
+
+            {/* Affiché uniquement pour le module comptabilité */}
+            {!isGym && (
+              <Link to="/register" style={{ color: "#27ae60", textDecoration: "none", fontSize: 13, fontWeight: 500 }}>
+                Créer un compte
+              </Link>
+            )}
           </div>
         </form>
       </div>

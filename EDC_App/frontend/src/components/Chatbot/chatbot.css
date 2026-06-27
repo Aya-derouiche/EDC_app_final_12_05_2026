@@ -36,8 +36,11 @@
 .cb-new, .cb-conv-item, .cb-close, .cb-send { cursor: pointer; }
 .cb-new { width: 100%; border: 0; padding: 8px; border-radius: 9px; background: #1f7aec; color: #fff; margin-bottom: 10px; }
 .cb-conv-list { max-height: calc(100% - 90px); overflow: auto; }
-.cb-conv-item { width: 100%; border: 1px solid #2a3958; background: #0f172a; color: #cbd5e1; padding: 8px; text-align: left; border-radius: 8px; margin-bottom: 8px; }
-.cb-conv-item.active { background: #1f2937; color: #fff; }
+.cb-conv-item-wrap { display: flex; align-items: stretch; gap: 6px; margin-bottom: 8px; }
+.cb-conv-item-wrap.active .cb-conv-item { background: #1f2937; color: #fff; }
+.cb-conv-item { flex: 1; border: 1px solid #2a3958; background: #0f172a; color: #cbd5e1; padding: 8px; text-align: left; border-radius: 8px; min-width: 0; }
+.cb-icon-btn { border: 1px solid #334155; background: #111827; color: #fff; border-radius: 8px; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: 0 0 auto; }
+.cb-conv-del { margin-top: 1px; }
 
 .cb-main {
   display: flex;
@@ -63,9 +66,15 @@
   border: 1px solid #334155;
   color: #dbeafe;
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 4px 8px 4px 10px;
   font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
+
+.cb-doc-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-doc-del { width: 22px; height: 22px; border-radius: 999px; line-height: 1; }
 
 .cb-messages {
   flex: 1;

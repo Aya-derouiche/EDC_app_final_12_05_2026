@@ -21,6 +21,7 @@ import ReplayIcon from "@mui/icons-material/Replay";
 import SecurityIcon from "@mui/icons-material/Security";
 import SettingsIcon from "@mui/icons-material/Settings";
 import StorefrontIcon from "@mui/icons-material/Storefront";
+import * as XLSX from "xlsx";
 import gymApi from "../../api/gymApi";
 import { Alert, Spinner } from "../UI.jsx";
 
@@ -96,6 +97,9 @@ const statusColor = {
   printed: "#2b6cb0",
   sent_hq: "#6b46c1",
   processed: "#1f7a3d",
+  paid: "#166534",
+  rejected: "#c0392b",
+  unmatched: "#b45309",
   success: "#1f7a3d",
   failed: "#c0392b",
   insufficient_funds: "#c05621",
@@ -120,6 +124,7 @@ const endpointFallbacks = {
   authorizations: [],
   payments: [],
   bankReturns: [],
+  bankReturnRows: [],
   bankExports: [],
   classes: [],
   coaches: [],
@@ -157,6 +162,7 @@ const modules = [
   { id: "hq", label: "Validation siège", icon: SecurityIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
   { id: "authorizations", label: "Autorisations", icon: AccountBalanceIcon },
   { id: "payments", label: "Paiements", icon: PaymentsIcon },
+    { id: "bankExports", label: "Genérer TXT/XML", icon: PictureAsPdfIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
   { id: "bankReturns", label: "Retours bancaires", icon: ReplayIcon, roles: ["admin", "super_admin", "hq_admin", "gym_manager"] },
   { id: "classes", label: "Classes / Cours", icon: FitnessCenterIcon },
   { id: "coaches", label: "Coachs", icon: GroupsIcon },
@@ -239,7 +245,7 @@ function roleAllowed(currentRole, allowedRoles) {
 }
 
 // ── DataTable ────────────────────────────────────────────────────
-function DataTable({ columns, rows, empty = "Aucune donnée." }) {
+function DataTable({ columns, rows, empty = "Aucune donnée.", compact = false }) {
   if (!rows?.length) {
     return (
       <div style={{ textAlign: "center", padding: "48px 20px" }}>
@@ -254,7 +260,7 @@ function DataTable({ columns, rows, empty = "Aucune donnée." }) {
         <thead>
           <tr style={{ background: TOKEN.bgInput, borderBottom: `2px solid ${TOKEN.border}` }}>
             {columns.map((col) => (
-              <th key={col.key} style={{ padding: "11px 16px", textAlign: "left", fontSize: 11.5, fontWeight: 700, color: TOKEN.textSecondary, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+              <th key={col.key} style={{ padding: compact ? "8px 10px" : "11px 16px", textAlign: "left", fontSize: compact ? 10.5 : 11.5, fontWeight: 700, color: TOKEN.textSecondary, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
                 {col.label}
               </th>
             ))}
@@ -262,7 +268,7 @@ function DataTable({ columns, rows, empty = "Aucune donnée." }) {
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <TableRow key={row.id || index} columns={columns} row={row} />
+            <TableRow key={row.id || index} columns={columns} row={row} compact={compact} />
           ))}
         </tbody>
       </table>
@@ -270,7 +276,7 @@ function DataTable({ columns, rows, empty = "Aucune donnée." }) {
   );
 }
 
-function TableRow({ columns, row }) {
+function TableRow({ columns, row, compact = false }) {
   const [hover, setHover] = useState(false);
   return (
     <tr
@@ -279,7 +285,7 @@ function TableRow({ columns, row }) {
       style={{ borderBottom: `1px solid ${TOKEN.border}`, background: hover ? "#f8fafc" : "#fff", transition: "background 0.15s" }}
     >
       {columns.map((col) => (
-        <td key={col.key} style={{ padding: "11px 16px", fontSize: 13.5, color: TOKEN.textPrimary }}>
+        <td key={col.key} style={{ padding: compact ? "8px 10px" : "11px 16px", fontSize: compact ? 12.5 : 13.5, color: TOKEN.textPrimary, verticalAlign: "middle" }}>
           {col.render ? col.render(row) : row[col.key]}
         </td>
       ))}
@@ -407,6 +413,8 @@ const GymManagement = () => {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedCoach, setSelectedCoach] = useState(null);
   const [selectedGymFile, setSelectedGymFile] = useState(null);
+  const [selectedBankFile, setSelectedBankFile] = useState(null);
+  const [bankImportResult, setBankImportResult] = useState(null);
   const [selectedBankSubscriptionIds, setSelectedBankSubscriptionIds] = useState([]);
   const [showBankSelection, setShowBankSelection] = useState(false);
   const [showBankDetails, setShowBankDetails] = useState(false);
@@ -414,7 +422,7 @@ const GymManagement = () => {
   const [forms, setForms] = useState({
     branch: { branch_code: "", branch_name: "", city: "", hotel_spa_integrated: false },
     member: { branch_id: "", member_code: "", full_name: "", employee_id: "", cin: "", phone: "", email: "", bank_account: "", status: "active" },
-    subscription: { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" },
+    subscription: { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", bank_account: "", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" },
     coach: { branch_id: "", full_name: "", specialty: "", phone: "", email: "" },
     classItem: { class_name: "", class_type: "", coach_id: "", branch_id: "", capacity: 20, starts_at: new Date().toISOString().slice(0, 16) },
     attendance: { member_id: "", class_id: "", branch_id: "", checkin_type: "gym" },
@@ -429,6 +437,18 @@ const GymManagement = () => {
   });
 
   const unreadCount = useMemo(() => data.notifications.filter((item) => item.status === "unread").length, [data.notifications]);
+  const selectedSubscriptionMember = useMemo(
+    () => data.members.find((m) => String(m.id) === String(forms.subscription.member_id)),
+    [data.members, forms.subscription.member_id]
+  );
+  useEffect(() => {
+    if (forms.subscription.payment_method !== "salary_deduction") return;
+    if (forms.subscription.bank_account) return;
+    const memberBank = selectedSubscriptionMember?.bank_account || "";
+    if (memberBank) {
+      setForm("subscription", { bank_account: memberBank });
+    }
+  }, [forms.subscription.payment_method, forms.subscription.bank_account, selectedSubscriptionMember?.bank_account]);
   const canScanNotifications = roleAllowed(currentRole, ["admin", "super_admin", "hq_admin", "gym_manager", "comptable"]);
   const hqAccessAllowed = useMemo(() => {
     if (roleAllowed(currentRole, ["admin", "super_admin", "hq_admin"])) return true;
@@ -492,8 +512,10 @@ const GymManagement = () => {
           payments: "/payments",
         },
         bankReturns: {
-          payments: "/payments",
           bankReturns: "/bank-returns",
+          bankReturnRows: "/bank-returns/rows",
+        },
+        bankExports: {
           authorizations: "/authorizations",
           bankExports: hqAccessAllowed ? "/bank-exports" : null,
         },
@@ -659,12 +681,22 @@ const GymManagement = () => {
 
   const createSubscription = (e) => {
     e.preventDefault();
-    const payload = { ...forms.subscription, amount: Number(forms.subscription.amount), member_id: Number(forms.subscription.member_id), branch_id: forms.subscription.branch_id ? Number(forms.subscription.branch_id) : null, due_day: Number(forms.subscription.due_day || 5), end_date: forms.subscription.end_date || null };
+    const payload = {
+      ...forms.subscription,
+      amount: Number(forms.subscription.amount),
+      member_id: Number(forms.subscription.member_id),
+      branch_id: forms.subscription.branch_id ? Number(forms.subscription.branch_id) : null,
+      due_day: Number(forms.subscription.due_day || 5),
+      end_date: forms.subscription.end_date || null,
+      bank_account: forms.subscription.payment_method === "salary_deduction"
+        ? (forms.subscription.bank_account || selectedSubscriptionMember?.bank_account || "")
+        : "",
+    };
     const action = selectedSubscription?.id ? gymApi.patch(`/subscriptions/${selectedSubscription.id}`, payload) : gymApi.post("/subscriptions", payload);
     runAction(async () => {
       await action;
       setSelectedSubscription(null);
-      setForm("subscription", { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" });
+      setForm("subscription", { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", bank_account: "", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" });
     }, selectedSubscription?.id ? "Abonnement mis à jour." : "Abonnement créé.");
   };
   const editSubscription = (subscription) => {
@@ -675,6 +707,7 @@ const GymManagement = () => {
       plan_name: subscription.plan_name || "Standard",
       amount: subscription.amount ?? "",
       payment_method: subscription.payment_method || "direct",
+      bank_account: subscription.bank_account || "",
       due_day: subscription.due_day || 5,
       start_date: String(subscription.start_date || new Date().toISOString().slice(0, 10)).slice(0, 10),
       end_date: String(subscription.end_date || "").slice(0, 10),
@@ -682,7 +715,7 @@ const GymManagement = () => {
   };
   const cancelSubscriptionEdit = () => {
     setSelectedSubscription(null);
-    setForm("subscription", { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" });
+    setForm("subscription", { branch_id: "", member_id: "", plan_name: "Standard", amount: "", payment_method: "direct", bank_account: "", due_day: 5, start_date: new Date().toISOString().slice(0, 10), end_date: "" });
   };
   const deleteSubscription = (id) => runAction(() => gymApi.delete(`/subscriptions/${id}`));
   const updateWorkflow = (id, workflow_status) => runAction(() => gymApi.patch(`/subscriptions/${id}/workflow`, { workflow_status }));
@@ -728,6 +761,33 @@ const GymManagement = () => {
   const createCash = (e) => { e.preventDefault(); runAction(() => gymApi.post("/cash", { ...forms.cash, amount: Number(forms.cash.amount), member_id: forms.cash.member_id ? Number(forms.cash.member_id) : null, branch_id: forms.cash.branch_id ? Number(forms.cash.branch_id) : null })); };
   const registerPaymentAttempt = (e) => { e.preventDefault(); runAction(() => gymApi.post(`/payments/${forms.paymentAttempt.payment_id}/attempt`, { outcome: forms.paymentAttempt.outcome, failure_reason: forms.paymentAttempt.failure_reason || null })); };
   const importBankReturn = (e) => { e.preventDefault(); runAction(() => gymApi.post("/bank-returns", { ...forms.bankReturn, payment_id: forms.bankReturn.payment_id ? Number(forms.bankReturn.payment_id) : null })); };
+  const importBankReturnFile = (e) => {
+    e.preventDefault();
+    if (!selectedBankFile) {
+      setError("Choisis un fichier Excel avant l'import.");
+      return;
+    }
+    runAction(async () => {
+      const buffer = await selectedBankFile.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) throw new Error("Le fichier Excel ne contient aucune feuille exploitable.");
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+      const res = await gymApi.post("/bank-returns/import-excel", {
+        bank_name: forms.bankReturn.bank_name,
+        original_filename: selectedBankFile.name,
+        sheet_name: sheetName,
+        rows,
+      });
+      setBankImportResult(res.data || null);
+      setSelectedBankFile(null);
+    }, "Import bancaire traité avec succès.");
+  };
+  const deleteBankImport = (id) => {
+    if (!window.confirm("Supprimer cet import bancaire et toutes ses lignes ?")) return;
+    runAction(() => gymApi.delete(`/bank-returns/${id}`), "Import bancaire supprimé.");
+  };
   const toggleBankSubscriptionSelection = (subscriptionId) => {
     const id = Number(subscriptionId);
     setSelectedBankSubscriptionIds((prev) => (
@@ -951,7 +1011,9 @@ const GymManagement = () => {
         <Field placeholder="CIN" value={forms.member.cin} onChange={(e) => setForm("member", { cin: e.target.value })} />
         <Field placeholder="Téléphone" value={forms.member.phone} onChange={(e) => setForm("member", { phone: e.target.value })} />
         <Field placeholder="Email" value={forms.member.email} onChange={(e) => setForm("member", { email: e.target.value })} />
-        <Field placeholder="Compte bancaire / RIB" value={forms.member.bank_account} onChange={(e) => setForm("member", { bank_account: e.target.value })} />
+          {/*
+        <Field placeholder="Compte bancaire / RIB" value={forms.member.bank_account} onChange={(e) => setForm("member", { bank_account: e.target.value })} />*/}
+        
         <Field as="select" value={forms.member.status} onChange={(e) => setForm("member", { status: e.target.value })}>
           <option value="active">Actif</option>
           <option value="inactive">Inactif</option>
@@ -991,16 +1053,43 @@ const GymManagement = () => {
           <option value="">Salle / branche</option>
           {data.branches.map((b) => <option key={b.id} value={b.id}>{b.branch_code} - {b.branch_name}</option>)}
         </Field>
-        <Field as="select" label="Membre" hint="Client ou employé concerné par cet abonnement." value={forms.subscription.member_id} onChange={(e) => setForm("subscription", { member_id: e.target.value })} required>
+        <Field
+          as="select"
+          label="Membre"
+          hint="Client ou employé concerné par cet abonnement."
+          value={forms.subscription.member_id}
+          onChange={(e) => {
+            const memberId = e.target.value;
+            const member = data.members.find((m) => String(m.id) === String(memberId));
+            setForm("subscription", {
+              member_id: memberId,
+              bank_account:
+                forms.subscription.payment_method === "salary_deduction"
+                  ? (member?.bank_account || "")
+                  : forms.subscription.bank_account,
+            });
+          }}
+          required
+        >
           <option value="">Sélectionner membre</option>
           {data.members.map((m) => <option key={m.id} value={m.id}>{m.member_code} - {m.full_name}</option>)}
         </Field>
         <Field label="Plan d'abonnement" hint="Exemple : Standard, Premium, Spa ou Corporate." placeholder="Plan" value={forms.subscription.plan_name} onChange={(e) => setForm("subscription", { plan_name: e.target.value })} required />
         <Field type="number" step="0.001" label="Montant mensuel" hint="Prix mensuel de l'abonnement en DT." placeholder="Montant" value={forms.subscription.amount} onChange={(e) => setForm("subscription", { amount: e.target.value })} required />
-        <Field as="select" label="Mode de paiement" value={forms.subscription.payment_method} onChange={(e) => setForm("subscription", { payment_method: e.target.value })}>
+        <Field as="select" label="Mode de paiement" value={forms.subscription.payment_method} onChange={(e) => setForm("subscription", { payment_method: e.target.value, bank_account: e.target.value === "salary_deduction" ? forms.subscription.bank_account : "" })}>
           <option value="direct">Paiement direct</option>
           <option value="salary_deduction">Prélèvement salaire</option>
         </Field>
+        {forms.subscription.payment_method === "salary_deduction" && (
+          <Field
+            placeholder="Compte bancaire / RIB"
+            label="RIB"
+            hint="Utilisé pour le prélèvement bancaire et les documents d'autorisation."
+            value={forms.subscription.bank_account}
+            onChange={(e) => setForm("subscription", { bank_account: e.target.value })}
+            required
+          />
+        )}
         <Field type="number" min="1" max="28" label="Jour d'échéance" placeholder="Jour échéance" value={forms.subscription.due_day} onChange={(e) => setForm("subscription", { due_day: e.target.value })} />
         <Field type="date" label="Date de début" value={forms.subscription.start_date} onChange={(e) => setForm("subscription", { start_date: e.target.value })} required />
         <Field type="date" label="Date de fin" value={forms.subscription.end_date} onChange={(e) => setForm("subscription", { end_date: e.target.value })} />
@@ -1212,57 +1301,212 @@ const GymManagement = () => {
   );
 
   const renderBankReturns = () => (
-    <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
-      <form onSubmit={importBankReturn} style={cardStyle}>
-        <SectionTitle>Importer retour bancaire</SectionTitle>
-        <Field as="select" value={forms.bankReturn.payment_id} onChange={(e) => setForm("bankReturn", { payment_id: e.target.value })}><option value="">Paiement optionnel</option>{data.payments.map((p) => <option key={p.id} value={p.id}>#{p.id} - {p.full_name} - {p.amount} DT</option>)}</Field>
-        <Field placeholder="Banque" value={forms.bankReturn.bank_name} onChange={(e) => setForm("bankReturn", { bank_name: e.target.value })} />
-        <Field as="select" value={forms.bankReturn.result_status} onChange={(e) => setForm("bankReturn", { result_status: e.target.value })}><option value="success">success</option><option value="failed">failed</option><option value="insufficient_funds">insufficient_funds</option><option value="account_blocked">account_blocked</option></Field>
-        <Field placeholder="Motif échec" value={forms.bankReturn.failure_reason} onChange={(e) => setForm("bankReturn", { failure_reason: e.target.value })} />
-        <Btn type="submit">Importer retour</Btn>
-      </form>
-      <div style={cardStyle}>
-        <SectionTitle>Retours bancaires</SectionTitle>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
+        <form onSubmit={importBankReturnFile} style={cardStyle}>
+          <SectionTitle>Import automatique Excel</SectionTitle>
+          <Field
+            label="Banque source"
+            as="select"
+            value={forms.bankReturn.bank_name}
+            onChange={(e) => setForm("bankReturn", { bank_name: e.target.value })}
+            hint="Nom du fichier ou banque qui a envoyé le retour."
+          >
+            <option value="BIAT">BIAT</option>
+            <option value="STB">Zitouna</option>
+            <option value="STB">STB</option>
+            <option value="ATB">ATB</option>
+            <option value="BH">BH</option>
+            <option value="BNA">BNA</option>
+            <option value="AUTRE">Autre</option>
+          </Field>
+          <label style={{ display: "block", marginBottom: 10 }}>
+            <span style={{ display: "block", color: "#334155", fontSize: 13, fontWeight: 700, marginBottom: 5 }}>
+              Fichier Excel
+            </span>
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => setSelectedBankFile(e.target.files?.[0] || null)}
+              style={{ ...inputStyle, marginBottom: 0, padding: 10, background: "#fff" }}
+            />
+          </label>
+          <div style={{ color: TOKEN.textMuted, fontSize: 12.5, lineHeight: 1.5, marginBottom: 12 }}>
+            Colonnes attendues: <b>Emetteur</b>, <b>RIB creancier</b>, <b>RIB payeur</b>, <b>Ref domiciliation</b>, <b>Libelle</b>, <b>Date Echeance</b>, <b>Montant</b>, <b>Motif rejet</b>.
+          </div>
+          <Btn type="submit">Importer et rapprocher</Btn>
+
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${TOKEN.border}` }}>
+            <div style={{ color: TOKEN.textSecondary, fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
+              Raccourcis
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn onClick={() => setShowBankDetails((v) => !v)} variant="ghost">
+                {showBankDetails ? "Masquer l'historique" : "Voir l'historique"}
+              </Btn>
+            </div>
+          </div>
+        </form>
+
+        <div style={cardStyle}>
+          <SectionTitle>Résultat du rapprochement</SectionTitle>
+          {bankImportResult?.summary ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 16 }}>
+                <StatCard label="Lignes" value={bankImportResult.summary.totalRows || 0} />
+                <StatCard label="Payés" value={bankImportResult.summary.matchedRows || 0} accent />
+                <StatCard label="Rejetés" value={bankImportResult.summary.rejectedRows || 0} />
+                <StatCard label="À vérifier" value={bankImportResult.summary.unmatchedRows || 0} />
+              </div>
+              <div style={{ color: TOKEN.textSecondary, fontSize: 13, marginBottom: 16 }}>
+                Import créé à partir de <b>{bankImportResult.import?.original_filename || "fichier Excel"}</b>
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: "18px 0 10px", color: TOKEN.textMuted, fontSize: 13 }}>
+              Envoie un fichier Excel pour lancer le rapprochement automatique. Le système mettra à jour les statuts des abonnements et remontera les lignes sans correspondance.
+            </div>
+          )}
+
+          <div style={{ display: "grid", gap: 16 }}>
+            <div>
+              <h4 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 800, color: TOKEN.textPrimary }}>Imports récents</h4>
+              <DataTable
+                empty="Aucun import bancaire pour le moment."
+                compact
+                columns={[
+                  { key: "original_filename", label: "Fichier" },
+                  { key: "source_bank", label: "Banque" },
+                  { key: "total_rows", label: "Lignes" },
+                  { key: "matched_rows", label: "Payés" },
+                  { key: "rejected_rows", label: "Rejetés" },
+                  { key: "unmatched_rows", label: "À vérifier" },
+                  { key: "created_at", label: "Date", render: (r) => String(r.created_at || "").slice(0, 10) },
+                  { key: "action", label: "Action", render: (r) => (
+                    <Btn
+                      onClick={() => deleteBankImport(r.id)}
+                      variant="red"
+                      title="Supprimer l'import"
+                      style={{
+                        width: 30,
+                        height: 30,
+                        minWidth: 30,
+                        padding: 0,
+                        borderRadius: 8,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 15,
+                        lineHeight: 1,
+                      }}
+                    >
+                      ×
+                    </Btn>
+                  ) },
+                ]}
+                rows={data.bankReturns}
+              />
+            </div>
+
+            {showBankDetails ? (
+              <div>
+                <h4 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 800, color: TOKEN.textPrimary }}>Lignes rapprochées</h4>
+                <DataTable
+                  empty="Aucune ligne importée."
+                  columns={[
+                    { key: "row_number", label: "Ligne" },
+                    { key: "libelle", label: "Libellé" },
+                    { key: "member", label: "Membre", render: (r) => `${r.full_name || ""}${r.member_code ? ` (${r.member_code})` : ""}` },
+                    { key: "subscription", label: "Abonnement", render: (r) => `${r.plan_name || ""}${r.subscription_id ? ` #${r.subscription_id}` : ""}` },
+                    { key: "amount", label: "Montant", render: (r) => `${Number(r.amount || 0).toFixed(3)} DT` },
+                    { key: "normalized_status", label: "Statut", render: (r) => <b style={{ color: statusColor[r.normalized_status] || TOKEN.textPrimary }}>{r.normalized_status}</b> },
+                    { key: "match_source", label: "Source", render: (r) => r.match_source || "auto" },
+                    { key: "follow_up_status", label: "Suivi", render: (r) => r.follow_up_status || "pending" },
+                    { key: "motif_rejet", label: "Motif", render: (r) => r.motif_rejet || "—" },
+                  ]}
+                  rows={data.bankReturnRows}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderBankExports = () => (
+    <div style={{ ...cardStyle, padding: 24, width: "100%", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: TOKEN.textPrimary }}>Export prélèvement salaire</h2>
+          <div style={{ marginTop: 6, color: TOKEN.textMuted, fontSize: 13 }}>
+            Sélectionne les abonnés puis génère le fichier TXT ou XML.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Btn onClick={() => generateBankExport("txt")}>Générer TXT</Btn>
           <Btn onClick={() => generateBankExport("xml")}>Générer XML</Btn>
         </div>
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 12 }}>
-            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: TOKEN.textPrimary }}>Sélection des abonnés</h4>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: TOKEN.textMuted }}>{selectedBankSubscriptionIds.length} sélectionné(s)</span>
-              <Btn onClick={selectAllBankSubscriptions} variant="teal">Select all</Btn>
-              <Btn onClick={clearBankSubscriptionSelection} variant="teal">Clear</Btn>
-            </div>
-          </div>
-          <DataTable
-            empty="Aucun abonné disponible."
-            columns={[
-              { key: "select", label: "Select", render: (r) => <input type="checkbox" checked={selectedBankSubscriptionIds.includes(Number(r.subscription_id || r.id))} onChange={() => toggleBankSubscriptionSelection(r.subscription_id || r.id)} /> },
-              { key: "member", label: "Nom", render: (r) => `${r.member_code || ""}${r.member_code ? " - " : ""}${r.full_name || ""}` },
-              { key: "employee_id", label: "Employé" },
-              { key: "bank_account", label: "Compte" },
-              { key: "amount", label: "Montant", render: (r) => `${Number(r.amount || 0).toFixed(3)} DT` },
-              { key: "validation_status", label: "Statut" },
-            ]}
-            rows={data.authorizations}
-          />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-              <Btn onClick={() => setShowBankDetails((v) => !v)}style={{ backgroundColor: "#27ae60" }}>{showBankDetails ? "Voir moins" : "Voir plus"}</Btn>
-             </div>
-
-        </div>
-        {showBankDetails ? (
-          <>
-            <DataTable columns={[{ key: "bank_name", label: "Banque" }, { key: "result_status", label: "Résultat" }, { key: "failure_reason", label: "Motif" }, { key: "created_at", label: "Date", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") }]} rows={data.bankReturns} />
-            <h4 style={{ margin: "20px 0 10px", fontSize: 14, fontWeight: 700, color: TOKEN.textPrimary }}>Exports prélèvement salaire</h4>
-            <DataTable empty="Aucun export bancaire." columns={[{ key: "file_name", label: "Fichier" }, { key: "file_format", label: "Format", render: (r) => String(r.file_format || "").toUpperCase() }, { key: "month_ref", label: "Mois", render: (r) => String(r.month_ref || "").slice(0, 10) }, { key: "batch_status", label: "Statut batch" }, { key: "download", label: "Télécharger", render: (r) => <Btn onClick={() => downloadBankExport(r)} variant="teal" style={{ padding: "7px 10px" }}>Télécharger</Btn> }, { key: "created_at", label: "Créé le", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") }]} rows={data.bankExports} />
-          </>
-        ) : null}
-
       </div>
 
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: TOKEN.textPrimary }}>Sélection des abonnés</h4>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, color: TOKEN.textMuted }}>{selectedBankSubscriptionIds.length} sélectionné(s)</span>
+            <Btn onClick={selectAllBankSubscriptions} variant="teal">Select all</Btn>
+            <Btn onClick={clearBankSubscriptionSelection} variant="teal">Clear</Btn>
+          </div>
+        </div>
+        <DataTable
+          empty="Aucun abonné disponible."
+          columns={[
+            { key: "select", label: "Select", render: (r) => <input type="checkbox" checked={selectedBankSubscriptionIds.includes(Number(r.subscription_id || r.id))} onChange={() => toggleBankSubscriptionSelection(r.subscription_id || r.id)} /> },
+            { key: "member", label: "Nom", render: (r) => `${r.member_code || ""}${r.member_code ? " - " : ""}${r.full_name || ""}` },
+            { key: "employee_id", label: "Employé" },
+            { key: "bank_account", label: "Compte" },
+            { key: "amount", label: "Montant", render: (r) => `${Number(r.amount || 0).toFixed(3)} DT` },
+            { key: "validation_status", label: "Statut" },
+          ]}
+          rows={data.authorizations}
+        />
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 18 }}>
+        <Btn onClick={() => setShowBankDetails((v) => !v)} style={{ minWidth: 120 }}>
+          {showBankDetails ? "Voir moins" : "Voir plus"}
+        </Btn>
+      </div>
+
+      {showBankDetails ? (
+        <div style={{ marginBottom: 18 }}>
+          <DataTable
+            columns={[
+              { key: "bank_name", label: "Banque", render: (r) => r.source_bank || "—" },
+              { key: "result_status", label: "Résultat", render: (r) => r.normalized_status || "—" },
+              { key: "motif_rejet", label: "Motif", render: (r) => r.motif_rejet || "—" },
+              { key: "created_at", label: "Date", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") },
+            ]}
+            rows={data.bankReturnRows}
+          />
+        </div>
+      ) : null}
+
+      <div>
+        <h4 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 800, color: TOKEN.textPrimary }}>Exports prélèvement salaire</h4>
+        <DataTable
+          empty="Aucun export bancaire."
+          columns={[
+            { key: "file_name", label: "Fichier" },
+            { key: "file_format", label: "Format", render: (r) => String(r.file_format || "").toUpperCase() },
+            { key: "month_ref", label: "Mois", render: (r) => String(r.month_ref || "").slice(0, 10) },
+            { key: "batch_status", label: "Statut batch" },
+            { key: "download", label: "Télécharger", render: (r) => <Btn onClick={() => downloadBankExport(r)} variant="teal" style={{ padding: "7px 10px" }}>Télécharger</Btn> },
+            { key: "created_at", label: "Créé le", render: (r) => String(r.created_at || "").slice(0, 19).replace("T", " ") },
+          ]}
+          rows={data.bankExports}
+        />
+      </div>
     </div>
   );
 
@@ -1455,7 +1699,7 @@ const GymManagement = () => {
     const map = {
       dashboard: renderDashboard, branches: renderBranches, members: renderMembers,
       subscriptions: renderSubscriptions, contracts: renderContracts, hq: renderHqValidations,
-      authorizations: renderAuthorizations, payments: renderPayments, bankReturns: renderBankReturns,
+      authorizations: renderAuthorizations, payments: renderPayments, bankReturns: renderBankReturns, bankExports: renderBankExports,
       classes: renderClasses, coaches: renderCoaches, attendance: renderAttendance, cash: renderCash,
       statistics: renderStatistics, notifications: renderNotifications, files: renderFiles,
       settings: renderSettings, access: renderAccess,
@@ -1704,7 +1948,7 @@ const GymManagement = () => {
         </header>
 
         {/* ── PAGE CONTENT ── */}
-        <main style={{ flex: 1, padding: "24px", overflowX: "hidden" }}>
+        <main style={{ flex: 1, padding: "18px 20px 20px", overflowX: "hidden" }}>
           {error ? (
             <div style={{
               marginBottom: 16, padding: "12px 16px", borderRadius: 10,
@@ -1723,7 +1967,11 @@ const GymManagement = () => {
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
               <div style={{ marginTop: 14, color: TOKEN.textMuted, fontSize: 14 }}>Chargement en cours…</div>
             </div>
-          ) : renderModule()}
+          ) : (
+            <div style={{ width: "100%", maxWidth: 1380, margin: "0 auto" }}>
+              {renderModule()}
+            </div>
+          )}
         </main>
       </div>
     </div>

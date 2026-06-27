@@ -24,7 +24,7 @@ export default function ChatInput({ onSend, onUpload, disabled, uploading }) {
         {uploading ? "..." : "+"}
         <input type="file" onChange={handleFile} style={{ display: "none" }} disabled={uploading} />
       </label>
-      <input className="cb-input" placeholder="Écris ton message..." value={text} onChange={(e) => setText(e.target.value)} />
+      <input className="cb-input" placeholder="Pose une question comptable..." value={text} onChange={(e) => setText(e.target.value)} />
       <button className="cb-send" type="submit" disabled={disabled}>Envoyer</button>
     </form>
   );
