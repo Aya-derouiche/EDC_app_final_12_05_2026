@@ -11,7 +11,9 @@ router.use(requireAuth, requireTenant);
 router.post("/message", controller.sendMessage);
 router.get("/conversations", controller.listConversations);
 router.get("/messages/:conversationId", controller.listMessages);
+router.delete("/conversations/:conversationId", controller.deleteConversation);
 router.post("/upload", upload.single("file"), controller.uploadDocument);
+router.delete("/documents/:documentId", controller.deleteDocument);
 router.get("/documents", controller.listDocuments);
 
 module.exports = router;

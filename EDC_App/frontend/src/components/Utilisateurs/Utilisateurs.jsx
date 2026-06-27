@@ -12,6 +12,22 @@ import {
 } from "../UI.jsx";
 
 const ITEMS_PER_PAGE = 8;
+const USERS_ALLOWED = {
+  identite: "ines",
+  position: "comptable senior",
+  role: "comptable",
+};
+
+function canViewUsers(user) {
+  const identite = String(user?.identite || "").trim().toLowerCase();
+  const position = String(user?.position || "").trim().toLowerCase();
+  const role = String(user?.role || "").trim().toLowerCase();
+  return (
+    identite === USERS_ALLOWED.identite &&
+    position === USERS_ALLOWED.position &&
+    role === USERS_ALLOWED.role
+  );
+}
 
 const Utilisateurs = () => {
   const { user } = useContext(UserContext);
@@ -45,8 +61,27 @@ const Utilisateurs = () => {
   };
 
   useEffect(() => {
+    if (!canViewUsers(user)) {
+      setLoading(false);
+      return;
+    }
     fetchUsers();
-  }, [navigate]);
+  }, [navigate, user]);
+
+  const allowed = canViewUsers(user);
+
+  if (!allowed) {
+    return (
+      <PageLayout>
+        <PageHeader title="Utilisateurs" subtitle="Accès restreint" />
+        <Card>
+          <div style={{ padding: 24, color: "#64748b", fontSize: 15 }}>
+            Cette liste est réservée à <strong>ines</strong>.
+          </div>
+        </Card>
+      </PageLayout>
+    );
+  }
 
   const handleDelete = async (id) => {
     const result = await Swal.fire({
@@ -90,7 +125,7 @@ const Utilisateurs = () => {
       <PageHeader
         title="Utilisateurs"
         subtitle={`${filtered.length} utilisateur${filtered.length !== 1 ? "s" : ""} trouvé${filtered.length !== 1 ? "s" : ""}`}
-        action={user?.role !== "utilisateur" && (
+        action={allowed && (
           <button
             type="button"
             onClick={() => setShowAddCard(true)}

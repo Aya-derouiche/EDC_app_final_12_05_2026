@@ -80,12 +80,25 @@ JSON attendu:
   "type_document": "livraison",
   "num_bl": "",
   "date_bl": "",
-  "fournisseur": { "nom": null, "mf_cin": null },
+  "lieu_bl": "",
   "reference_commande": null,
+  "numero_client": null,
+  "contact_client": null,
+  "emis_par": null,
+  "tiers_saisie": null,
+  "fournisseur": { "nom": null, "mf_cin": null, "adresse": null, "tel": null },
+  "fournisseur_nom": null,
+  "fournisseur_adresse": null,
+  "fournisseur_tel": null,
+  "destinataire": { "nom": null, "adresse": null, "ville": null, "pays": null },
+  "destinataire_nom": null,
+  "destinataire_adresse": null,
+  "destinataire_ville": null,
+  "destinataire_pays": null,
   "lignes": [],
-  "montant_ht": 0,
-  "tva": 0,
-  "montant_total": 0,
+  "montant_ht_bl": 0,
+  "tva_bl": 0,
+  "montant_total_bl": 0,
   "observations": null,
   "confidence_score": 0
 }`,
@@ -181,12 +194,25 @@ function emptyExtraction(docType) {
       type_document: "livraison",
       num_bl: "",
       date_bl: "",
-      fournisseur: { nom: null, mf_cin: null },
+      lieu_bl: "",
       reference_commande: null,
+      numero_client: null,
+      contact_client: null,
+      emis_par: null,
+      tiers_saisie: null,
+      fournisseur: { nom: null, mf_cin: null, adresse: null, tel: null },
+      fournisseur_nom: null,
+      fournisseur_adresse: null,
+      fournisseur_tel: null,
+      destinataire: { nom: null, adresse: null, ville: null, pays: null },
+      destinataire_nom: null,
+      destinataire_adresse: null,
+      destinataire_ville: null,
+      destinataire_pays: null,
       lignes: [],
-      montant_ht: 0,
-      tva: 0,
-      montant_total: 0,
+      montant_ht_bl: 0,
+      tva_bl: 0,
+      montant_total_bl: 0,
       observations: null,
     };
   }
@@ -238,6 +264,158 @@ function emptyExtraction(docType) {
     echeance: null,
     observations: null,
   };
+}
+
+function asText(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  const text = String(value)
+    .replace(/\s+/g, "")
+    .replace(/[^0-9,.-]/g, "")
+    .replace(/,/g, ".");
+
+  const parsed = Number.parseFloat(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toDateIso(value) {
+  const text = asText(value);
+  if (!text) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const match = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    return `${year}-${day.padStart(2, "0")}-${month.padStart(2, "0")}`;
+  }
+
+  return text;
+}
+
+function normalizeDeliveryExtraction(extractedData = {}) {
+  const fournisseur = extractedData.fournisseur || {};
+  const destinataire = extractedData.destinataire || extractedData.client || {};
+
+  const normalized = {
+    ...extractedData,
+    type_document: "livraison",
+  };
+
+  normalized.date_bl = toDateIso(
+    asText(
+      extractedData.date_bl,
+      extractedData.date,
+      extractedData.date_livraison,
+      extractedData.date_bon_livraison
+    )
+  );
+  normalized.num_bl = asText(
+    extractedData.num_bl,
+    extractedData.numero_bl,
+    extractedData.numero,
+    extractedData.reference_bl
+  );
+  normalized.lieu_bl = asText(
+    extractedData.lieu_bl,
+    extractedData.lieu,
+    extractedData.ville,
+    destinataire.ville
+  );
+  normalized.reference_commande = asText(
+    extractedData.reference_commande,
+    extractedData.num_commande,
+    extractedData.reference_commande_bl
+  );
+  normalized.numero_client = asText(
+    extractedData.numero_client,
+    extractedData.client_numero,
+    extractedData.code_client,
+    extractedData.code_tiers
+  );
+  normalized.contact_client = asText(
+    extractedData.contact_client,
+    extractedData.client_contact,
+    destinataire.contact,
+    destinataire.nom_contact
+  );
+  normalized.emis_par = asText(
+    extractedData.emis_par,
+    extractedData.livre_par,
+    extractedData.etabli_par,
+    extractedData.expediteur,
+    fournisseur.nom
+  );
+  normalized.tiers_saisie = asText(
+    extractedData.tiers_saisie,
+    extractedData.fournisseur_nom,
+    fournisseur.nom,
+    destinataire.nom
+  );
+
+  normalized.fournisseur = {
+    nom: asText(fournisseur.nom, extractedData.fournisseur_nom) || null,
+    mf_cin: asText(fournisseur.mf_cin, extractedData.fournisseur_mf_cin) || null,
+    adresse: asText(fournisseur.adresse, extractedData.fournisseur_adresse) || null,
+    tel: asText(fournisseur.tel, extractedData.fournisseur_tel) || null,
+  };
+  normalized.fournisseur_nom = normalized.fournisseur.nom;
+  normalized.fournisseur_adresse = normalized.fournisseur.adresse;
+  normalized.fournisseur_tel = normalized.fournisseur.tel;
+
+  normalized.destinataire = {
+    nom: asText(destinataire.nom, extractedData.destinataire_nom) || null,
+    adresse: asText(destinataire.adresse, extractedData.destinataire_adresse) || null,
+    ville: asText(destinataire.ville, extractedData.destinataire_ville) || null,
+    pays: asText(destinataire.pays, extractedData.destinataire_pays) || null,
+  };
+  normalized.destinataire_nom = normalized.destinataire.nom;
+  normalized.destinataire_adresse = normalized.destinataire.adresse;
+  normalized.destinataire_ville = normalized.destinataire.ville;
+  normalized.destinataire_pays = normalized.destinataire.pays;
+
+  normalized.lignes = Array.isArray(extractedData.lignes) ? extractedData.lignes : [];
+  normalized.montant_ht_bl = toNumber(
+    extractedData.montant_ht_bl ?? extractedData.montant_ht ?? extractedData.total_ht
+  );
+  normalized.montant_ht = normalized.montant_ht_bl;
+  normalized.tva_bl = toNumber(
+    extractedData.tva_bl ?? extractedData.tva ?? extractedData.taxe_tva
+  );
+  normalized.tva = normalized.tva_bl;
+  normalized.montant_total_bl = toNumber(
+    extractedData.montant_total_bl ?? extractedData.montant_total ?? extractedData.total_ttc
+  );
+  normalized.montant_total = normalized.montant_total_bl;
+  normalized.date = normalized.date_bl || null;
+  normalized.observations = asText(
+    extractedData.observations,
+    extractedData.informations_additionnelles,
+    extractedData.notes
+  ) || null;
+  normalized.confidence_score = Number.isFinite(Number(extractedData.confidence_score))
+    ? Number(extractedData.confidence_score)
+    : 0;
+
+  return normalized;
+}
+
+function normalizeConfidenceScore(value) {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return 0.75;
 }
 
 function unescapePdfString(value) {
@@ -475,12 +653,18 @@ async function scanDocument(fileUrlOrBuffer, mimeType, docType = "facture") {
           }
 
           const extractedData = parseAIResponse(rawText);
+          const normalizedExtraction =
+            docType === "livraison"
+              ? normalizeDeliveryExtraction(extractedData)
+              : extractedData;
           return {
             success: true,
-            extractedData,
-            confidence_score: extractedData.confidence_score ?? 0.75,
+            extractedData: normalizedExtraction,
+            confidence_score: normalizeConfidenceScore(
+              normalizedExtraction.confidence_score ?? extractedData.confidence_score
+            ),
             model_used: model,
-            doc_type_detected: extractedData.type_document,
+            doc_type_detected: normalizedExtraction.type_document,
             rawText: pdfText,
           };
         } catch (modelErr) {
@@ -526,12 +710,19 @@ async function scanDocument(fileUrlOrBuffer, mimeType, docType = "facture") {
         }
 
         const extractedData = parseAIResponse(rawText);
+        const normalizedExtraction =
+          docType === "livraison"
+            ? normalizeDeliveryExtraction(extractedData)
+            : extractedData;
         return {
           success: true,
-          extractedData,
-          confidence_score: extractedData.confidence_score ?? 0,
+          extractedData: normalizedExtraction,
+          confidence_score: normalizeConfidenceScore(
+            normalizedExtraction.confidence_score ?? extractedData.confidence_score
+          ),
           model_used: model,
-          doc_type_detected: extractedData.type_document,
+          doc_type_detected: normalizedExtraction.type_document,
+          rawText: rawText,
         };
       } catch (modelErr) {
         const errMsg = modelErr.response?.data?.error?.message || modelErr.message;

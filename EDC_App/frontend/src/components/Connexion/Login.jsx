@@ -19,7 +19,7 @@ const Login = () => {
     try {
       const res = await axios.post("/api/login", { identite, mot_de_passe });
       const { token, refreshToken, user } = res.data;
-      if (!token || !user) throw new Error("RÃ©ponse invalide");
+      if (!token || !user) throw new Error("Réponse invalide");
       localStorage.setItem("token", token);
       if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
       localStorage.setItem("user", JSON.stringify(user));
@@ -37,7 +37,7 @@ const Login = () => {
       setUser(user);
       navigate("/home");
     } catch (err) {
-      setError("Identifiants invalides. Veuillez rÃ©essayer.");
+      setError("Identifiants invalides. Veuillez réessayer.");
     } finally {
       setLoading(false);
     }
@@ -74,13 +74,13 @@ const Login = () => {
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             fontSize: 28, marginBottom: 14,
           }}>
-            ðŸ“Š
+            📊
           </div>
           <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: 0 }}>
-            EDC Gestion
+            EDC
           </h1>
           <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, marginTop: 4 }}>
-            Connectez-vous Ã  votre espace comptable
+            Connectez-vous à votre espace comptable
           </p>
         </div>
 
@@ -100,7 +100,7 @@ const Login = () => {
               color: "#c0392b", fontSize: 13, marginBottom: 18,
               display: "flex", alignItems: "center", gap: 8,
             }}>
-              <span>âš </span> {error}
+              <span>⚠</span> {error}
             </div>
           )}
 
@@ -114,7 +114,7 @@ const Login = () => {
                 <span style={{
                   position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)",
                   fontSize: 15, color: "#a0aec0",
-                }}>ðŸ‘¤</span>
+                }}>👤</span>
                 <input
                   type="text"
                   value={identite}
@@ -143,7 +143,7 @@ const Login = () => {
                 <span style={{
                   position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)",
                   fontSize: 15, color: "#a0aec0",
-                }}>ðŸ”’</span>
+                }}>🔑</span>
                 <input
                   type={showPwd ? "text" : "password"}
                   value={mot_de_passe}
@@ -169,14 +169,14 @@ const Login = () => {
                     fontSize: 16, color: "#a0aec0", padding: 2,
                   }}
                 >
-                  {showPwd ? "ðŸ™ˆ" : "ðŸ‘"}
+                  {showPwd ? "🙈" : "👁"}
                 </button>
               </div>
             </div>
 
             {/* Helper text */}
             <p style={{ fontSize: 12, color: "#a0aec0", marginBottom: 18 }}>
-              Si vous rencontrez un problÃ¨me, contactez votre administration
+              Si vous rencontrez un problème, contactez votre administration
             </p>
 
             {/* Submit */}
@@ -219,10 +219,10 @@ const Login = () => {
               marginTop: 18, fontSize: 13,
             }}>
               <Link to="/forget_pass" style={{ color: "#27ae60", textDecoration: "none", fontWeight: 500 }}>
-                Mot de passe oubliÃ© ?
+                Mot de passe oublié ?
               </Link>
               <Link to="/register" style={{ color: "#718096", textDecoration: "none" }}>
-                CrÃ©er un compte
+                Créer un compte
               </Link>
             </div>
           </form>
@@ -233,5 +233,3 @@ const Login = () => {
 };
 
 export default Login;
-
-

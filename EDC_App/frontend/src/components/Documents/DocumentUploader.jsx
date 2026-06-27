@@ -171,10 +171,13 @@ function mapExtractedToForm(extracted, docType) {
           extracted.tiers_saisie ||
           extracted.fournisseur_nom ||
           extracted.fournisseur?.nom ||
+          extracted.destinataire?.nom ||
           extracted.destinataire_nom ||
           "",
         fournisseur_nom:
-          extracted.fournisseur_nom || extracted.fournisseur?.nom || "",
+          extracted.fournisseur_nom ||
+          extracted.fournisseur?.nom ||
+          "",
         fournisseur_adresse:
           extracted.fournisseur_adresse ||
           extracted.fournisseur?.adresse ||
@@ -205,15 +208,14 @@ function mapExtractedToForm(extracted, docType) {
           extracted.client?.pays ||
           "",
         montant_HT_BL:
-          extracted.montant_ht ?? extracted.montant_ht_bl ?? 0,
-        TVA_BL: extracted.tva ?? extracted.tva_bl ?? 0,
+          extracted.montant_ht_bl ?? extracted.montant_ht ?? 0,
+        TVA_BL: extracted.tva_bl ?? extracted.tva ?? 0,
         montant_total_BL:
-          extracted.montant_total ??
-          extracted.montant_total_bl ??
-          0,
+          extracted.montant_total_bl ?? extracted.montant_total ?? 0,
         observations:
           extracted.observations ||
           extracted.informations_additionnelles ||
+          extracted.notes ||
           "",
       };
 
@@ -255,6 +257,25 @@ const DocumentUploader = ({
   const [confidence, setConfidence] = useState(0);
   const [formData, setFormData] = useState({});
   const [error, setError] = useState("");
+
+  const confidencePercent = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round((Number(confidence) > 1 ? Number(confidence) : Number(confidence) * 100) || 0)
+    )
+  );
+
+  const ocrResultText =
+    scanData?.rawText ||
+    Object.entries(scanData?.extractedData || {})
+      .map(([key, value]) => {
+        if (value === null || value === undefined || value === "") return null;
+        if (typeof value === "object") return `${key}: ${JSON.stringify(value)}`;
+        return `${key}: ${value}`;
+      })
+      .filter(Boolean)
+      .join("\n");
 
   useEffect(() => {
     const fetchTiers = async () => {
@@ -365,7 +386,7 @@ const DocumentUploader = ({
 
       setScanData(response.data);
 
-      setConfidence(response.data.confidence_score || 0);
+      setConfidence(Number.isFinite(Number(response.data.confidence_score)) ? Number(response.data.confidence_score) : 0.75);
 
       setFormData({
         ...defaults,
@@ -489,8 +510,7 @@ const DocumentUploader = ({
 
         <div className="mb-3">
           <span className="badge bg-success">
-            Score de confiance :{" "}
-            {Math.round(confidence * 100)}%
+            OCR EXTRACTED
           </span>
         </div>
 
@@ -522,6 +542,23 @@ const DocumentUploader = ({
                 />
               )
             )}
+
+            <div className="mt-3 border rounded p-3 bg-light">
+              <h6 className="mb-2">Résultat</h6>
+              <pre
+                style={{
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  margin: 0,
+                  maxHeight: 260,
+                  overflow: "auto",
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                }}
+              >
+                {ocrResultText || "Aucun texte OCR disponible."}
+              </pre>
+            </div>
           </div>
 
           <div className="col-md-6">

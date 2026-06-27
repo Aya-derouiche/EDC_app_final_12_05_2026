@@ -825,6 +825,162 @@ function requireHqAccess(req, res) {
   return false;
 }
 
+async function ensureBankImportSchema() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS gym_bank_return_imports (
+      id BIGSERIAL PRIMARY KEY,
+      code_entreprise VARCHAR(80) NOT NULL,
+      source_bank VARCHAR(120),
+      original_filename TEXT NOT NULL,
+      sheet_name TEXT,
+      total_rows INT NOT NULL DEFAULT 0,
+      matched_rows INT NOT NULL DEFAULT 0,
+      rejected_rows INT NOT NULL DEFAULT 0,
+      unmatched_rows INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS gym_bank_return_items (
+      id BIGSERIAL PRIMARY KEY,
+      import_id BIGINT NOT NULL REFERENCES gym_bank_return_imports(id) ON DELETE CASCADE,
+      code_entreprise VARCHAR(80) NOT NULL,
+      row_number INT NOT NULL,
+      bank_name VARCHAR(120),
+      result_status VARCHAR(40) NOT NULL,
+      failure_reason TEXT,
+      motif_rejet TEXT,
+      libelle TEXT,
+      payer_rib TEXT,
+      creditor_rib TEXT,
+      reference_domiciliation TEXT,
+      amount NUMERIC(14,3),
+      row_payload TEXT,
+      payment_id BIGINT,
+      member_id BIGINT,
+      subscription_id BIGINT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+function normalizeBankKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function parseBankAmount(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return Number(value.toFixed(3));
+  const parsed = Number(String(value).replace(/\s+/g, "").replace(/,/g, "."));
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(3)) : null;
+}
+
+function pickRowValue(row, keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== "") return row[key];
+  }
+  return "";
+}
+
+function normalizeBankImportRow(rawRow, index) {
+  const row = rawRow || {};
+  return {
+    row_number: index + 1,
+    bank_name: String(pickRowValue(row, ["bank_name", "Banque", "banque", "source_bank"]) || "").trim(),
+    result_status: String(pickRowValue(row, ["result_status", "Résultat", "resultat", "status"]) || "").trim(),
+    failure_reason: String(pickRowValue(row, ["failure_reason", "Motif", "motif", "motif_rejet"]) || "").trim(),
+    motif_rejet: String(pickRowValue(row, ["motif_rejet", "Motif rejet", "motif rejet"]) || "").trim(),
+    libelle: String(pickRowValue(row, ["libelle", "Libelle", "libellé"]) || "").trim(),
+    payer_rib: String(pickRowValue(row, ["payer_rib", "RIB payeur", "rib payeur", "rib_payeur"]) || "").trim(),
+    creditor_rib: String(pickRowValue(row, ["creditor_rib", "RIB creancier", "RIB créancier", "rib creancier", "rib_creancier"]) || "").trim(),
+    reference_domiciliation: String(pickRowValue(row, ["reference_domiciliation", "Ref domiciliation", "ref domiciliation", "reference domiciliation"]) || "").trim(),
+    amount: parseBankAmount(pickRowValue(row, ["amount", "Montant", "montant"])),
+    raw: row,
+  };
+}
+
+async function applyBankReturnOutcome({ code, paymentId, bankName, resultStatus, failureReason, rawPayload, importedBy }) {
+  const out = await query(
+    `INSERT INTO gym_bank_returns
+     (code_entreprise, payment_id, batch_job_id, bank_name, result_status, failure_reason, raw_payload, imported_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING *`,
+    [code, paymentId || null, null, bankName || null, resultStatus || "failed", failureReason || null, rawPayload || null, importedBy || null]
+  );
+
+  let paymentStatus = null;
+  let attemptNo = null;
+  if (paymentId) {
+    const cur = await query(
+      `SELECT p.*, s.id AS subscription_id
+       FROM gym_payments p
+       JOIN gym_subscriptions s ON s.id=p.subscription_id
+       WHERE p.id=$1`,
+      [paymentId]
+    );
+    if (cur.rows[0]) {
+      const p = cur.rows[0];
+      attemptNo = Number(p.attempt_count || 0) + 1;
+      if (resultStatus === "success") {
+        paymentStatus = "success";
+      } else if (attemptNo < 2) {
+        paymentStatus = "retry_scheduled";
+      } else {
+        paymentStatus = resultStatus === "insufficient_funds" ? "insufficient_funds" : "failed";
+      }
+
+      await query(
+        `UPDATE gym_payments
+         SET attempt_count=$1,
+             status=$2::varchar,
+             paid_at=CASE WHEN $2::varchar='success' THEN NOW() ELSE paid_at END,
+             failure_reason=CASE WHEN $2::varchar='success' THEN NULL ELSE COALESCE($3, failure_reason) END
+         WHERE id=$4`,
+        [attemptNo, paymentStatus, failureReason || null, paymentId]
+      );
+
+      if (paymentStatus !== "success") {
+        const subscriptionStatus = "pending";
+        await query(
+          `UPDATE gym_subscriptions
+           SET workflow_status=$1,
+               updated_at=NOW()
+           WHERE id=$2`,
+          [subscriptionStatus, p.subscription_id]
+        );
+      } else {
+        await query(
+          `UPDATE gym_subscriptions
+           SET workflow_status='processed',
+               updated_at=NOW()
+           WHERE id=$1`,
+          [p.subscription_id]
+        );
+      }
+
+      await safeCreateNotification({
+        tenant_code: code,
+        type: paymentStatus === "success" ? "payment_success" : paymentStatus === "retry_scheduled" ? "payment_retry_scheduled" : "payment_final_failed",
+        entity_type: "bank_return",
+        entity_id: out.rows[0].id,
+        message: paymentStatus === "retry_scheduled"
+          ? "Bank return failed. A second salary deduction attempt is scheduled."
+          : paymentStatus === "success"
+            ? "Bank return accepted. Payment validated."
+            : "Second bank return failed. Subscription is now marked unpaid.",
+        severity: paymentStatus === "success" ? "success" : paymentStatus === "retry_scheduled" ? "warning" : "danger",
+      });
+    }
+  }
+
+  return { record: out.rows[0], paymentStatus, attemptNo };
+}
+
 function userBranchId(req) {
   return req.user?.gym_branch_id ||
     req.user?.branch_id ||
@@ -2568,13 +2724,19 @@ router.post("/subscriptions", requireRole("admin", "super_admin", "hq_admin", "g
     }
 
     const memberCheck = await query(
-      `SELECT id, branch_id
+      `SELECT id, branch_id, bank_account
        FROM gym_members
        WHERE id=$1 AND code_entreprise=$2`,
       [memberId, scope.code]
     );
     const member = memberCheck.rows[0];
     if (!member) return res.status(404).json({ error: "Member not found" });
+    const bankAccount = paymentMethod === "salary_deduction"
+      ? String(b.bank_account || member.bank_account || "").trim() || null
+      : null;
+    if (paymentMethod === "salary_deduction" && !bankAccount) {
+      return res.status(400).json({ error: "RIB requis pour un prélèvement bancaire" });
+    }
 
     const memberBranchId = member.branch_id !== null && member.branch_id !== undefined ? Number(member.branch_id) : null;
     if (selectedBranchId !== null && memberBranchId !== null && selectedBranchId !== memberBranchId) {
@@ -2657,19 +2819,27 @@ router.patch("/subscriptions/:id", requireRole("admin", "super_admin", "hq_admin
     const rawBranchId = b.branch_id !== undefined && b.branch_id !== null && b.branch_id !== "" ? Number(b.branch_id) : current.rows[0].branch_id;
     const memberId = Number.isInteger(rawMemberId) && rawMemberId > 0 ? rawMemberId : current.rows[0].member_id;
     const branchCandidate = b.branch_id !== undefined && b.branch_id !== null && b.branch_id !== "" ? Number(b.branch_id) : null;
+    let memberBankAccount = null;
     if (branchCandidate !== null && !Number.isInteger(branchCandidate)) {
       return res.status(400).json({ error: "Invalid branch_id" });
     }
 
     let branchId = scopedBranchId(scope, branchCandidate !== null ? branchCandidate : rawBranchId);
     if (memberId) {
-      const member = await query(`SELECT id, branch_id FROM gym_members WHERE id=$1 AND code_entreprise=$2`, [memberId, scope.code]);
+      const member = await query(`SELECT id, branch_id, bank_account FROM gym_members WHERE id=$1 AND code_entreprise=$2`, [memberId, scope.code]);
       if (!member.rows[0]) return res.status(404).json({ error: "Member not found" });
+      memberBankAccount = member.rows[0].bank_account || null;
       const memberBranchId = member.rows[0].branch_id !== null && member.rows[0].branch_id !== undefined ? Number(member.rows[0].branch_id) : null;
       if (branchCandidate !== null && memberBranchId !== null && branchCandidate !== memberBranchId) {
         return res.status(400).json({ error: "Member belongs to a different branch" });
       }
       if (!branchId) branchId = memberBranchId;
+    }
+    const bankAccount = b.bank_account !== undefined && b.bank_account !== null
+      ? String(b.bank_account).trim() || null
+      : memberBankAccount || null;
+    if ((String(b.payment_method || current.rows[0].payment_method || "") === "salary_deduction") && !bankAccount) {
+      return res.status(400).json({ error: "RIB requis pour un prélèvement bancaire" });
     }
 
     const out = await query(
@@ -2954,7 +3124,7 @@ router.get("/subscriptions/:id/authorization-form", async (req, res, next) => {
     const where = ["s.id=$1", "s.code_entreprise=$2"];
     addBranchCondition(where, params, scope, "s");
     const r = await query(
-      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.plan_name, s.code_entreprise,
+      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.bank_account, s.plan_name, s.code_entreprise,
               m.full_name, m.employee_id, m.cin, m.bank_account, m.phone,
               b.branch_name, b.city AS branch_city,
               c.contract_number, c.authorization_reference
@@ -2994,7 +3164,7 @@ router.get("/subscriptions/:id/authorization-form.pdf", async (req, res, next) =
     const where = ["s.id=$1", "s.code_entreprise=$2", "s.payment_method='salary_deduction'"];
     addBranchCondition(where, params, scope, "s");
     const r = await query(
-      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.plan_name, s.code_entreprise,
+      `SELECT s.id, s.branch_id, s.amount, s.start_date, s.end_date, s.payment_method, s.bank_account, s.plan_name, s.code_entreprise,
               m.full_name, m.employee_id, m.cin, m.bank_account, m.phone,
               b.branch_name, b.city AS branch_city,
               c.id AS contract_id, c.contract_number, c.authorization_reference
@@ -3522,25 +3692,107 @@ router.get("/payments", async (req, res, next) => {
 router.get("/bank-returns", async (req, res, next) => {
   try {
     await ensureSchema();
+    await ensureBankImportSchema();
     const scope = requireBranchScope(req, res);
     if (!scope) return;
     const params = [scope.code];
-    const where = ["br.code_entreprise=$1"];
+    const where = ["i.code_entreprise=$1"];
     if (scope.branchId) {
       params.push(scope.branchId);
-      where.push(`s.branch_id=$${params.length}`);
+      where.push(`EXISTS (
+        SELECT 1
+        FROM gym_bank_return_items it
+        LEFT JOIN gym_payments p ON p.id = it.payment_id
+        LEFT JOIN gym_subscriptions s ON s.id = COALESCE(it.subscription_id, p.subscription_id)
+        WHERE it.import_id = i.id
+          AND s.branch_id = $${params.length}
+      )`);
     }
     const out = await query(
-      `SELECT br.*, p.reference, p.amount, p.status AS payment_status
-       FROM gym_bank_returns br
-       LEFT JOIN gym_payments p ON p.id=br.payment_id
-       LEFT JOIN gym_subscriptions s ON s.id=p.subscription_id
+      `SELECT i.*,
+              COUNT(it.id)::int AS item_count,
+              COUNT(*) FILTER (WHERE it.result_status = 'success')::int AS success_count,
+              COUNT(*) FILTER (WHERE it.result_status <> 'success')::int AS failed_count
+       FROM gym_bank_return_imports i
+       LEFT JOIN gym_bank_return_items it ON it.import_id = i.id
        WHERE ${where.join(" AND ")}
-       ORDER BY br.id DESC`,
+       GROUP BY i.id
+       ORDER BY i.id DESC`,
       params
     );
     res.json(out.rows);
   } catch (e) { next(e); }
+});
+
+router.get("/bank-returns/rows", async (req, res, next) => {
+  try {
+    await ensureSchema();
+    await ensureBankImportSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+    const params = [scope.code];
+    const where = ["it.code_entreprise=$1"];
+    if (scope.branchId) {
+      params.push(scope.branchId);
+      where.push(`EXISTS (
+        SELECT 1
+        FROM gym_payments p
+        JOIN gym_subscriptions s ON s.id = COALESCE(it.subscription_id, p.subscription_id)
+        WHERE p.id = it.payment_id
+          AND s.branch_id = $${params.length}
+      )`);
+    }
+    const out = await query(
+      `SELECT it.*,
+              i.original_filename,
+              i.source_bank,
+              i.sheet_name,
+              i.created_at AS import_created_at,
+              it.result_status AS normalized_status
+       FROM gym_bank_return_items it
+       JOIN gym_bank_return_imports i ON i.id = it.import_id
+       WHERE ${where.join(" AND ")}
+       ORDER BY it.id DESC`,
+      params
+    );
+    res.json(out.rows);
+  } catch (e) { next(e); }
+});
+
+router.delete("/bank-returns/:id", async (req, res, next) => {
+  try {
+    await ensureSchema();
+    await ensureBankImportSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+
+    const params = [req.params.id, scope.code];
+    let where = "id=$1 AND code_entreprise=$2";
+    if (scope.branchId) {
+      params.push(scope.branchId);
+      where += ` AND EXISTS (
+        SELECT 1
+        FROM gym_bank_return_items it
+        LEFT JOIN gym_payments p ON p.id = it.payment_id
+        LEFT JOIN gym_subscriptions s ON s.id = COALESCE(it.subscription_id, p.subscription_id)
+        WHERE it.import_id = gym_bank_return_imports.id
+          AND s.branch_id = $${params.length}
+      )`;
+    }
+
+    const out = await query(
+      `DELETE FROM gym_bank_return_imports
+       WHERE ${where}
+       RETURNING id`,
+      params
+    );
+    if (!out.rows[0]) {
+      return res.status(404).json({ error: "Import not found" });
+    }
+    res.json({ message: "Import deleted", id: out.rows[0].id });
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.get("/bank-exports", (req, res, next) => {
@@ -3595,6 +3847,189 @@ router.get("/bank-exports/:id/download", (req, res, next) => {
     }
     res.send(out.rows[0].xml_content);
   } catch (e) { next(e); }
+});
+
+router.post("/bank-returns/import-excel", (req, res, next) => {
+  if (!requireHqAccess(req, res)) return;
+  return next();
+}, async (req, res, next) => {
+  try {
+    await ensureSchema();
+    await ensureBankImportSchema();
+    const scope = requireBranchScope(req, res);
+    if (!scope) return;
+
+    const b = req.body || {};
+    const rawRows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rawRows.length) {
+      return res.status(400).json({ error: "rows[] is required" });
+    }
+
+    const normalizedRows = rawRows.map((row, index) => normalizeBankImportRow(row, index));
+    const importRecord = await query(
+      `INSERT INTO gym_bank_return_imports
+       (code_entreprise, source_bank, original_filename, sheet_name, total_rows, matched_rows, rejected_rows, unmatched_rows)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [
+        scope.code,
+        b.bank_name || b.source_bank || "bank-return",
+        b.original_filename || "bank-return.xlsx",
+        b.sheet_name || null,
+        normalizedRows.length,
+        0,
+        0,
+        0,
+      ]
+    );
+
+    const paymentsOut = await query(
+      `SELECT p.id AS payment_id, p.amount AS payment_amount, p.status AS payment_status, p.attempt_count,
+              p.subscription_id, s.branch_id, s.amount AS subscription_amount, s.workflow_status,
+              m.id AS member_id, m.full_name, m.member_code, m.employee_id, m.cin, m.bank_account
+       FROM gym_payments p
+       JOIN gym_subscriptions s ON s.id=p.subscription_id
+       LEFT JOIN gym_members m ON m.id=s.member_id
+       WHERE s.code_entreprise=$1`,
+      [scope.code]
+    );
+
+    const payments = paymentsOut.rows;
+    const updatedItems = [];
+    let matchedCount = 0;
+    let rejectedCount = 0;
+    let unmatchedCount = 0;
+
+    for (const row of normalizedRows) {
+      const rowText = normalizeBankKey([row.libelle, row.reference_domiciliation, row.motif_rejet].filter(Boolean).join(" "));
+      const rowRib = normalizeBankKey(row.payer_rib);
+      const rowAmount = Number(row.amount || 0);
+
+      let candidate = null;
+      let bestScore = -1;
+      for (const payment of payments) {
+        let score = 0;
+        if (rowRib && normalizeBankKey(payment.bank_account || "") && rowRib === normalizeBankKey(payment.bank_account || "")) score += 5;
+        if (rowText && normalizeBankKey(payment.full_name || "") && rowText.includes(normalizeBankKey(payment.full_name || ""))) score += 4;
+        if (rowText && normalizeBankKey(payment.member_code || "") && rowText.includes(normalizeBankKey(payment.member_code || ""))) score += 3;
+        if (rowText && normalizeBankKey(payment.employee_id || "") && rowText.includes(normalizeBankKey(payment.employee_id || ""))) score += 2;
+        const paymentAmount = Number(payment.payment_amount || payment.subscription_amount || 0);
+        if (Number.isFinite(rowAmount) && Number.isFinite(paymentAmount) && Math.abs(rowAmount - paymentAmount) < 0.01) score += 3;
+        if (score > bestScore) {
+          bestScore = score;
+          candidate = payment;
+        }
+      }
+
+      const hasRejection = Boolean(row.motif_rejet || row.failure_reason);
+      const resultStatus = row.result_status || (hasRejection ? "failed" : "success");
+      const failureReason = row.failure_reason || row.motif_rejet || null;
+
+      if (candidate && bestScore >= 3) {
+        if (resultStatus === "success") {
+          matchedCount += 1;
+        } else {
+          rejectedCount += 1;
+        }
+        const applied = await applyBankReturnOutcome({
+          code: scope.code,
+          paymentId: candidate.payment_id,
+          bankName: row.bank_name || b.bank_name || b.source_bank || null,
+          resultStatus,
+          failureReason,
+          rawPayload: JSON.stringify(row.raw || row),
+          importedBy: req.user?.id || null,
+        });
+
+        updatedItems.push({
+          import_id: importRecord.rows[0].id,
+          code_entreprise: scope.code,
+          row_number: row.row_number,
+          bank_name: row.bank_name || b.bank_name || b.source_bank || null,
+          result_status: resultStatus,
+          failure_reason: failureReason,
+          motif_rejet: row.motif_rejet || null,
+          libelle: row.libelle || null,
+          payer_rib: row.payer_rib || null,
+          creditor_rib: row.creditor_rib || null,
+          reference_domiciliation: row.reference_domiciliation || null,
+          amount: row.amount || null,
+          row_payload: JSON.stringify(row.raw || row),
+          payment_id: candidate.payment_id,
+          member_id: candidate.member_id,
+          subscription_id: candidate.subscription_id,
+        });
+
+      } else {
+        unmatchedCount += 1;
+        updatedItems.push({
+          import_id: importRecord.rows[0].id,
+          code_entreprise: scope.code,
+          row_number: row.row_number,
+          bank_name: row.bank_name || b.bank_name || b.source_bank || null,
+          result_status: resultStatus,
+          failure_reason: failureReason,
+          motif_rejet: row.motif_rejet || null,
+          libelle: row.libelle || null,
+          payer_rib: row.payer_rib || null,
+          creditor_rib: row.creditor_rib || null,
+          reference_domiciliation: row.reference_domiciliation || null,
+          amount: row.amount || null,
+          row_payload: JSON.stringify(row.raw || row),
+          payment_id: null,
+          member_id: null,
+          subscription_id: null,
+        });
+      }
+    }
+
+    await query(
+      `UPDATE gym_bank_return_imports
+       SET matched_rows=$1,
+           rejected_rows=$2,
+           unmatched_rows=$3
+       WHERE id=$4`,
+      [matchedCount, rejectedCount, unmatchedCount, importRecord.rows[0].id]
+    );
+
+    for (const item of updatedItems) {
+      await query(
+        `INSERT INTO gym_bank_return_items
+         (import_id, code_entreprise, row_number, bank_name, result_status, failure_reason, motif_rejet, libelle, payer_rib, creditor_rib, reference_domiciliation, amount, row_payload, payment_id, member_id, subscription_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        [
+          item.import_id,
+          item.code_entreprise,
+          item.row_number,
+          item.bank_name,
+          item.result_status,
+          item.failure_reason,
+          item.motif_rejet,
+          item.libelle,
+          item.payer_rib,
+          item.creditor_rib,
+          item.reference_domiciliation,
+          item.amount,
+          item.row_payload,
+          item.payment_id,
+          item.member_id,
+          item.subscription_id,
+        ]
+      );
+    }
+
+    res.status(201).json({
+      import: importRecord.rows[0],
+      summary: {
+        totalRows: normalizedRows.length,
+        matchedRows: matchedCount,
+        rejectedRows: rejectedCount,
+        unmatchedRows: unmatchedCount,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.post("/bank-returns", (req, res, next) => {

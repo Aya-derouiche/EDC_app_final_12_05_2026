@@ -27,6 +27,12 @@ async function getConversations(userId) {
   return rows;
 }
 
+async function getConversationById(userId, conversationId) {
+  const sql = `SELECT id, user_id, title, created_at, updated_at FROM conversations WHERE id = $1 AND user_id = $2 LIMIT 1`;
+  const { rows } = await query(sql, [conversationId, userId]);
+  return rows[0] || null;
+}
+
 async function createMessage(conversationId, role, content) {
   const sql = `INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3) RETURNING id, conversation_id, role, content, created_at`;
   const { rows } = await query(sql, [conversationId, role, content]);
@@ -67,6 +73,48 @@ async function getChatbotDocuments(tenantId, conversationId) {
   return rows;
 }
 
+async function getChatbotDocumentsWithStorage(tenantId, conversationId) {
+  const validTenantId = assertTenantId(tenantId);
+  const validConversationId = toPositiveInt(conversationId);
+
+  const params = [validTenantId];
+  let where = "tenant_id = $1";
+  if (validConversationId) {
+    params.push(validConversationId);
+    where += " AND conversation_id = $2";
+  }
+
+  const sql = `SELECT id, original_filename, storage_bucket, storage_key, conversation_id FROM chatbot_documents WHERE ${where} ORDER BY created_at DESC`;
+  const { rows } = await query(sql, params);
+  return rows;
+}
+
+async function getChatbotDocumentById(tenantId, documentId) {
+  const validTenantId = assertTenantId(tenantId);
+  const validDocumentId = toPositiveInt(documentId);
+  const sql = `SELECT id, tenant_id, conversation_id, original_filename, storage_bucket, storage_key FROM chatbot_documents WHERE id = $1 AND tenant_id = $2 LIMIT 1`;
+  const { rows } = await query(sql, [validDocumentId, validTenantId]);
+  return rows[0] || null;
+}
+
+async function deleteChatbotDocument(documentId) {
+  const validDocumentId = toPositiveInt(documentId);
+  const sql = `DELETE FROM chatbot_documents WHERE id = $1 RETURNING id`;
+  const { rows } = await query(sql, [validDocumentId]);
+  return rows[0] || null;
+}
+
+async function deleteConversation(conversationId) {
+  const validConversationId = toPositiveInt(conversationId);
+  const sql = `DELETE FROM conversations WHERE id = $1 RETURNING id`;
+  const { rows } = await query(sql, [validConversationId]);
+  return rows[0] || null;
+}
+
+async function getChatbotDocumentsForConversation(tenantId, conversationId) {
+  return getChatbotDocumentsWithStorage(tenantId, conversationId);
+}
+
 async function getRagContext(tenantId, conversationId, userText) {
   const tokens = String(userText || "").toLowerCase().split(/\W+/).filter((t) => t.length > 2).slice(0, 15);
   const docs = await getChatbotDocuments(tenantId, conversationId);
@@ -94,9 +142,15 @@ async function getRagContext(tenantId, conversationId, userText) {
 module.exports = {
   createConversation,
   getConversations,
+  getConversationById,
   createMessage,
   getMessages,
   saveChatbotDocument,
   getChatbotDocuments,
+  getChatbotDocumentsWithStorage,
+  getChatbotDocumentById,
+  deleteChatbotDocument,
+  deleteConversation,
+  getChatbotDocumentsForConversation,
   getRagContext,
 };

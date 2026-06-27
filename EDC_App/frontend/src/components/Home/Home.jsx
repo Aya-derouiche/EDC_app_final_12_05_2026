@@ -127,10 +127,7 @@ export default function Home({ isSidebarOpen }) {
 
   /* ── Chart data ── */
   const statCards = [
-    { icon: "👥", label: "Utilisateurs",        value: stats.totalUsers,      color: "#6366f1", to: "/users" },
-    { icon: "📦", label: "Commandes",            value: stats.totalOrders,     color: "#0ea5e9", to: "/commandes" },
-    { icon: "🚚", label: "Livraisons prévues",   value: stats.totalDeliveries, color: "#10b981", to: "/livraisons" },
-    { icon: "⚠️", label: "Factures non payées",  value: stats.unpaidInvoices,  color: "#f59e0b", to: "/facturations" },
+    { icon: "⚠️", label: "Facture en attente de traitement",  value: stats.unpaidInvoices,  color: "#f59e0b", to: "/facturations" },
   ];
 
   const months = ordersPerPeriod.map(o => o.label);
@@ -152,7 +149,7 @@ export default function Home({ isSidebarOpen }) {
   };
 
   const doughnutData = {
-    labels: ["Utilisateurs", "Commandes", "Livraisons", "Factures non payées"],
+    labels: ["Commandes", "Livraisons", "Factures non payées"],
     datasets: [{
       data: [stats.totalUsers, stats.totalOrders, stats.totalDeliveries, stats.unpaidInvoices],
       backgroundColor: ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b"],
@@ -259,73 +256,15 @@ export default function Home({ isSidebarOpen }) {
               <QuickBtn icon="🧾" label="Nouvelle facture"   to="/addFacture"      color="#10b981" />
               <QuickBtn icon="💰" label="Nouveau règlement"  to="/addReglement"    color="#f59e0b" />
               <QuickBtn icon="🏢" label="Nouveau tiers"      to="/addTier"         color="#8b5cf6" />
-              {user.role === "comptable" && (
-                <QuickBtn icon="👤" label="Nouvel utilisateur" to="/addUser"       color="#ec4899" />
-              )}
+              
             </div>
           </div>
 
           {/* ── Charts row ── */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24, marginBottom: 28 }}>
+          
+         
 
-            {/* Line / Bar chart */}
-            <div style={{
-              background: "#fff", borderRadius: 16,
-              padding: "20px 24px",
-              boxShadow: "0 2px 12px rgba(0,0,0,0.07)",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#374151", margin: 0 }}>
-                  📈 Commandes par période
-                </h3>
-                <span style={{
-                  fontSize: 12, background: "#ede9fe", color: "#6366f1",
-                  borderRadius: 20, padding: "3px 12px", fontWeight: 600,
-                }}>
-                  {months.length > 0 ? `${months.length} périodes` : "Aucune donnée"}
-                </span>
-              </div>
-              {ordersPerPeriod.length > 0 ? (
-                <Line data={lineData} options={chartOpts("Commandes")} />
-              ) : (
-                <div style={{
-                  height: 200, display: "flex", flexDirection: "column",
-                  alignItems: "center", justifyContent: "center", color: "#9ca3af",
-                }}>
-                  <span style={{ fontSize: 40, marginBottom: 8 }}>📊</span>
-                  <span>Aucune commande enregistrée</span>
-                </div>
-              )}
-            </div>
-
-            {/* Doughnut */}
-            {user.role === "comptable" && (
-              <div style={{
-                background: "#fff", borderRadius: 16,
-                padding: "20px 24px",
-                boxShadow: "0 2px 12px rgba(0,0,0,0.07)",
-              }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#374151", margin: "0 0 16px" }}>
-                  🍩 Vue d'ensemble
-                </h3>
-                <Doughnut data={doughnutData} options={doughnutOpts} />
-              </div>
-            )}
-          </div>
-
-          {/* Bar chart (comptable) */}
-          {user.role === "comptable" && ordersPerPeriod.length > 0 && (
-            <div style={{
-              background: "#fff", borderRadius: 16,
-              padding: "20px 24px", marginBottom: 28,
-              boxShadow: "0 2px 12px rgba(0,0,0,0.07)",
-            }}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#374151", margin: "0 0 16px" }}>
-                📊 Volume mensuel des commandes
-              </h3>
-              <Bar data={barData} options={chartOpts("Nombre")} />
-            </div>
-          )}
+       
 
           {/* ── Info cards row ── */}
           <div style={{
@@ -359,7 +298,6 @@ export default function Home({ isSidebarOpen }) {
               <InfoCard
                 title="⚙️ Administration"
                 items={[
-                  { label: "Utilisateurs",    to: "/users"          },
                   { label: "Configurations",  to: "/configurations" },
                   { label: "Requêtes SQL",    to: "/requetes"       },
                   { label: "Mon profil",      to: "/profile"        },
