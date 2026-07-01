@@ -1133,8 +1133,10 @@ const GymManagement = () => {
                   <Btn type="button" onClick={() => deleteSubscription(r.id)} variant="red" style={{ padding: "7px 10px", display: "inline-flex", gap: 6, alignItems: "center" }}><DeleteOutlineIcon fontSize="small" /></Btn>
                   {r.payment_method === "salary_deduction" ? (
                     <>
+                    {/*
                       <Btn onClick={() => downloadAuthorizationPdf(r.id)} style={{ padding: "7px 10px", display: "inline-flex", gap: 5, alignItems: "center" }}><PictureAsPdfIcon fontSize="small" /> Autorisation</Btn>
                       <Btn onClick={() => sendSubscriptionToHq(r.id)} variant="purple" style={{ padding: "7px 10px" }}>Envoyer siège</Btn>
+                      */}
                     </>
                   ) : null}
                 </div>

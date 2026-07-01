@@ -515,7 +515,7 @@ function buildSalaryDeductionAuthorizationHtml(row) {
           </div>
           <div class="choice-row">
             <div class="choice"><span class="box">${deductionDay === 5 ? "X" : ""}</span> le 05 de chaque mois</div>
-
+            
             <div class="choice"><span class="box">${deductionDay === 26 ? "X" : ""}</span> le 26 de chaque mois</div>
           </div>
         </div>
@@ -656,7 +656,7 @@ function buildSalaryDeductionAuthorizationHtmlPaper(row) {
         background: #fff;
         color: #000;
       }
-      .check-box.active { background: #11130f; border-color: #323a2a; }
+      .check-box.active { background: #c3f48f; border-color: #77aa48; }
       .amount-line {
         display: inline-block;
         min-width: 60px;

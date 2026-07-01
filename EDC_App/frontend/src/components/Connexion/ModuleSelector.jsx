@@ -20,7 +20,7 @@ const ModuleSelector = () => {
       <section style={{ background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px 42px" }}>
           <h1 style={{ margin: "20px 0 10px", fontSize: 48, color: "#0f172a", fontWeight: 800 }}>
-            Selectionnez vos modules
+            Selectionnez vos module
           </h1>
           <p style={{ margin: 0, color: "#475569", fontSize: 18 }}>
             Choisissez l'espace de travail a ouvrir.
